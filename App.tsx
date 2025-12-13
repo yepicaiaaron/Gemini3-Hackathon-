@@ -40,7 +40,8 @@ import {
   PlayCircle,
   Activity,
   Timer,
-  Server
+  Server,
+  RefreshCw
 } from 'lucide-react';
 
 const initialState: ProjectState = {
@@ -331,49 +332,83 @@ export default function App() {
     }
   }, [strategyForm, state.topic, state.hookStyle, state.aspectRatio, state.userLinks]);
 
-  // --- ASSET GENERATION PIPELINE ---
+  // --- ASSET GENERATION PIPELINE (With Retry) ---
 
-  // Helper to generate audio for a scene
+  const MAX_RETRIES = 3;
+
+  // Helper to generate audio with automatic retry
   const generateAudioForScene = async (sceneId: string, script: string) => {
     dispatch({ type: 'UPDATE_ASSET_STATUS', payload: { id: sceneId, type: 'audio', status: 'loading' } });
-    try {
-        const url = await GeminiService.generateSpeech(script, state.voice);
-        dispatch({ type: 'UPDATE_SCENE_AUDIO', payload: { id: sceneId, url } });
-        return true;
-    } catch (e) {
-        console.error(`Audio failed for ${sceneId}`, e);
-        dispatch({ type: 'UPDATE_ASSET_STATUS', payload: { id: sceneId, type: 'audio', status: 'error' } });
-        return false;
+    
+    let attempts = 0;
+    while(attempts < MAX_RETRIES) {
+        try {
+            const url = await GeminiService.generateSpeech(script, state.voice);
+            dispatch({ type: 'UPDATE_SCENE_AUDIO', payload: { id: sceneId, url } });
+            return true;
+        } catch (e) {
+            attempts++;
+            console.warn(`Audio attempt ${attempts} failed for ${sceneId}`, e);
+            if (attempts < MAX_RETRIES) {
+                 dispatch({ type: 'ADD_LOG', payload: `⚠️ Audio retrying for Scene ${sceneId} (${attempts}/${MAX_RETRIES})...` });
+                 await new Promise(r => setTimeout(r, 2000));
+            }
+        }
     }
+    
+    dispatch({ type: 'UPDATE_ASSET_STATUS', payload: { id: sceneId, type: 'audio', status: 'error' } });
+    dispatch({ type: 'ADD_LOG', payload: `❌ Audio failed for Scene ${sceneId}. Manual retry required.` });
+    return false;
   };
 
-  // Helper to generate image for a scene
+  // Helper to generate image with automatic retry
   const generateImageForScene = async (sceneId: string, prompt: string) => {
     dispatch({ type: 'UPDATE_ASSET_STATUS', payload: { id: sceneId, type: 'image', status: 'loading' } });
-    try {
-        const { imageUrl, groundingChunks } = await GeminiService.generateSceneImage(prompt, state.aspectRatio);
-        dispatch({ type: 'UPDATE_SCENE_IMAGE', payload: { id: sceneId, url: imageUrl, groundingChunks } });
-        return imageUrl;
-    } catch (e) {
-        console.error(`Image failed for ${sceneId}`, e);
-        dispatch({ type: 'UPDATE_ASSET_STATUS', payload: { id: sceneId, type: 'image', status: 'error' } });
-        return null;
+    
+    let attempts = 0;
+    while(attempts < MAX_RETRIES) {
+        try {
+            const { imageUrl, groundingChunks } = await GeminiService.generateSceneImage(prompt, state.aspectRatio);
+            dispatch({ type: 'UPDATE_SCENE_IMAGE', payload: { id: sceneId, url: imageUrl, groundingChunks } });
+            return imageUrl;
+        } catch (e) {
+            attempts++;
+            console.warn(`Image attempt ${attempts} failed for ${sceneId}`, e);
+            if (attempts < MAX_RETRIES) {
+                 dispatch({ type: 'ADD_LOG', payload: `⚠️ Image retrying for Scene ${sceneId} (${attempts}/${MAX_RETRIES})...` });
+                 await new Promise(r => setTimeout(r, 2000));
+            }
+        }
     }
+
+    dispatch({ type: 'UPDATE_ASSET_STATUS', payload: { id: sceneId, type: 'image', status: 'error' } });
+    dispatch({ type: 'ADD_LOG', payload: `❌ Image failed for Scene ${sceneId}. Manual retry required.` });
+    return null;
   };
 
-  // Helper to generate video for a scene (needs image)
+  // Helper to generate video with automatic retry
   const generateVideoForScene = async (sceneId: string, prompt: string, imageUrl: string) => {
     dispatch({ type: 'UPDATE_ASSET_STATUS', payload: { id: sceneId, type: 'video', status: 'loading' } });
-    try {
-        // Veo needs prompt and starting image
-        const videoUrl = await GeminiService.generateVideo(prompt, state.aspectRatio, imageUrl);
-        dispatch({ type: 'UPDATE_SCENE_VIDEO', payload: { id: sceneId, url: videoUrl } });
-        return true;
-    } catch (e) {
-        console.error(`Video failed for ${sceneId}`, e);
-        dispatch({ type: 'UPDATE_ASSET_STATUS', payload: { id: sceneId, type: 'video', status: 'error' } });
-        return false;
+    
+    let attempts = 0;
+    while(attempts < MAX_RETRIES) {
+        try {
+            const videoUrl = await GeminiService.generateVideo(prompt, state.aspectRatio, imageUrl);
+            dispatch({ type: 'UPDATE_SCENE_VIDEO', payload: { id: sceneId, url: videoUrl } });
+            return true;
+        } catch (e) {
+            attempts++;
+            console.warn(`Video attempt ${attempts} failed for ${sceneId}`, e);
+            if (attempts < MAX_RETRIES) {
+                 dispatch({ type: 'ADD_LOG', payload: `⚠️ Veo retrying for Scene ${sceneId} (${attempts}/${MAX_RETRIES})...` });
+                 await new Promise(r => setTimeout(r, 4000)); // Longer backoff for video
+            }
+        }
     }
+    
+    dispatch({ type: 'UPDATE_ASSET_STATUS', payload: { id: sceneId, type: 'video', status: 'error' } });
+    dispatch({ type: 'ADD_LOG', payload: `❌ Veo video failed for Scene ${sceneId}. Manual retry required.` });
+    return false;
   };
 
   // Main Pipeline Orchestrator per scene
@@ -381,34 +416,37 @@ export default function App() {
       // 1. Audio First
       const audioSuccess = await generateAudioForScene(scene.id, scene.script);
       
-      // 2. Image Second (only if we want to proceed, but audio failure shouldn't necessarily block visual drafting, though instructions say "voice first then images")
-      // Strict interpretation: Voice First -> Then Images.
-      
+      // 2. Image Second
+      // We proceed to Image even if Audio fails, to avoid blocking visual progress, 
+      // but log the error.
       let generatedImageUrl = null;
-      if (audioSuccess || !scene.script) { // Proceed if audio done or no script needed
-          generatedImageUrl = await generateImageForScene(scene.id, scene.imagePrompt || scene.script);
-      }
+      generatedImageUrl = await generateImageForScene(scene.id, scene.imagePrompt || scene.script);
 
       // 3. Video Last (Veo 3 from Image)
+      // Strictly requires Image to succeed.
       if (generatedImageUrl && (scene.useVeo || scene.type === 'split_screen' || scene.visualEffect === 'ZOOM_BLUR')) {
           await generateVideoForScene(scene.id, scene.imagePrompt || scene.script, generatedImageUrl);
       }
   };
 
-  // Retry Handler
+  // Retry Handler for User Button
   const handleRetryAsset = async (sceneId: string, type: 'audio' | 'image' | 'video') => {
       const scene = state.scenes.find(s => s.id === sceneId);
       if (!scene) return;
+      dispatch({ type: 'ADD_LOG', payload: `Manually retrying ${type} for ${sceneId}...` });
 
       if (type === 'audio') {
           await generateAudioForScene(sceneId, scene.script);
       } else if (type === 'image') {
           const imgUrl = await generateImageForScene(sceneId, scene.imagePrompt || scene.script);
-          // Auto-trigger video retry if image succeeds and video was needed? 
-          // For now, let user retry video manually to keep control.
+          // If image succeeds and we needed video, should we auto-retry video? 
+          // Let's check if video was needed but is missing/error
+          if (imgUrl && (scene.useVeo || scene.type === 'split_screen') && scene.statusVideo !== 'success') {
+              await generateVideoForScene(sceneId, scene.imagePrompt || scene.script, imgUrl);
+          }
       } else if (type === 'video') {
           if (!scene.imageUrl) {
-              alert("Cannot generate video without a base image. Retry image first.");
+              dispatch({ type: 'ADD_LOG', payload: `Cannot retry video for ${sceneId}: Missing base image.` });
               return;
           }
           await generateVideoForScene(sceneId, scene.imagePrompt || scene.script, scene.imageUrl);
@@ -424,9 +462,10 @@ export default function App() {
      state.scenes.forEach(scene => {
          processScene(scene);
      });
-
-     // Completion check logic is handled by UI state mostly, but we can set a timeout or check statuses
-     // For UX, we just let it run.
+     
+     // Note: We don't automatically set COMPLETE anymore to allow retries.
+     // User can verify checks and then "Preview" or we can detect 100% completion.
+     // For now, we leave it in ASSET_GENERATION so they can see the checklist.
   }, [state.scenes, state.voice, state.aspectRatio]);
 
   const handleMixAssets = async (assetA: string, assetB: string) => {
@@ -482,6 +521,9 @@ export default function App() {
       </div>
     );
   };
+
+  // Determine if we can show preview
+  const canPreview = state.status === PipelineStep.ASSET_GENERATION || state.status === PipelineStep.COMPLETE || state.status === PipelineStep.REVIEW;
 
   return (
     <div className="min-h-screen bg-black text-zinc-100 flex flex-col font-sans selection:bg-blue-500/30">
@@ -736,15 +778,17 @@ export default function App() {
                                     }
                                 </p>
                             </div>
-                            {state.status === PipelineStep.COMPLETE && (
+                            
+                            {canPreview && (
                                 <button 
                                     onClick={() => setIsPreviewOpen(true)}
-                                    className="flex items-center gap-2 px-6 py-3 bg-white text-black rounded-full hover:bg-zinc-200 transition-all font-bold shadow-[0_0_20px_rgba(255,255,255,0.15)]"
+                                    className={`flex items-center gap-2 px-6 py-3 rounded-full transition-all font-bold shadow-[0_0_20px_rgba(255,255,255,0.15)] ${state.status === PipelineStep.ASSET_GENERATION ? 'bg-zinc-800 text-white border border-zinc-700' : 'bg-white text-black hover:bg-zinc-200'}`}
                                 >
-                                    <PlayCircle size={20} />
-                                    Watch Full Preview
+                                    <PlayCircle size={20} className={state.status === PipelineStep.ASSET_GENERATION ? 'text-blue-400' : 'text-black'} />
+                                    {state.status === PipelineStep.ASSET_GENERATION ? 'Live Preview' : 'Watch Full Preview'}
                                 </button>
                             )}
+
                             {state.status === PipelineStep.REVIEW && (
                                 <button 
                                     onClick={approveAndGenerate}
