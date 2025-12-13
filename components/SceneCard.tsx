@@ -35,6 +35,8 @@ export const SceneCard: React.FC<SceneCardProps> = ({ scene, index, status, onCl
   const hasGrounding = scene.groundingChunks && scene.groundingChunks.length > 0;
   const hasUserLinks = scene.referenceLinks && scene.referenceLinks.length > 0;
   const isReviewMode = status === PipelineStep.REVIEW;
+  // Only show loading overlay if specifically in Asset Generation phase AND the scene is incomplete
+  const isGenerating = status === PipelineStep.ASSET_GENERATION && (!scene.imageUrl || !scene.audioUrl || (scene.useVeo && !scene.videoUrl));
 
   // Calculate Research Score
   const imageCount = scene.referenceLinks?.filter(l => l.match(/\.(jpeg|jpg|gif|png|webp)$/i))?.length || 0;
@@ -59,8 +61,8 @@ export const SceneCard: React.FC<SceneCardProps> = ({ scene, index, status, onCl
               
               {/* Main Visual Area */}
               <div className="relative flex-1 overflow-hidden">
-                {/* Status Overlay */}
-                {scene.isLoading ? (
+                {/* Status Overlay - Only during production */}
+                {isGenerating ? (
                     <div className="absolute inset-0 flex items-center justify-center bg-zinc-950/80 backdrop-blur-sm z-20">
                         <div className="flex flex-col items-center gap-4">
                             <div className="w-10 h-10 border-2 border-blue-500 border-t-transparent rounded-full animate-spin" />

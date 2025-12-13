@@ -129,7 +129,7 @@ export const generateNarrative = async (topic: string, hookStyle: HookStyle, str
   }
 };
 
-export const planScenes = async (beats: NarrativeBeat[], aspectRatio: AspectRatio, userLinks: string[], strategy?: VideoStrategy): Promise<Scene[]> => {
+export const planScenes = async (beats: NarrativeBeat[], aspectRatio: AspectRatio, userLinks: string[], strategy?: VideoStrategy, hookStyle?: HookStyle): Promise<Scene[]> => {
   const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
   
   const strategyContext = strategy ? `
@@ -143,12 +143,20 @@ export const planScenes = async (beats: NarrativeBeat[], aspectRatio: AspectRati
     ${JSON.stringify(userLinks)}
   ` : '';
 
+  const editingConstraints = hookStyle === 'FAST_CUT' 
+    ? "EDITING RULE: 'FAST_CUT' mode is active. Scenes MUST be short (1.5s - 3s max). Break down concepts into rapid-fire visuals. Avoid long static shots."
+    : "EDITING RULE: Standard pacing. Allow 3-6 seconds per scene for readability.";
+
   const prompt = `
     You are a Deep Research Agent and Lead Creative Director.
     Convert the following narrative beats into high-fidelity video scenes.
     
+    ${editingConstraints}
+
     CRITICAL OBJECTIVES:
-    1. **Deep Research**: You MUST find real-world assets (Images/Videos) for every scene.
+    1. **Deep Research & Asset Mining**: 
+       - You MUST find real-world assets (Images/Videos) for every scene IMMEDIATELY.
+       - **PRIORITY**: Try to find DIRECT URLs to images (ending in .jpg, .png) or videos so we can preview them in the app.
        - Use 'googleSearch' to find specific, high-value visual references.
        - Scoring: Each Image = 1pt, Video = 3pts. GOAL: >20 points total for the storyboard.
        - "visualResearchPlan" must list exactly what you found.
@@ -159,8 +167,9 @@ export const planScenes = async (beats: NarrativeBeat[], aspectRatio: AspectRati
        - Prioritize Veo for: Action shots, emotional character moments, complex abstract visualizations, and b-roll.
        - Static images are only for specific diagrams or text overlays.
 
-    3. **Transparency**:
-       - Fill the "reasoning" field with a detailed explanation of WHY you chose this visual approach, what research you found, and why it fits the narrative.
+    3. **Transparency & Reasoning**:
+       - The "reasoning" field MUST be written in PERFECT, PROFESSIONAL ENGLISH. No gibberish.
+       - Explain WHY you chose this visual approach, what research you found, and why it fits the narrative.
 
     ASPECT RATIO: ${aspectRatio}
     ${strategyContext}
@@ -183,7 +192,7 @@ export const planScenes = async (beats: NarrativeBeat[], aspectRatio: AspectRati
       "motionIntent": ["string", "string"],
       "visualEffect": "string (NONE|VHS|GLITCH|ZOOM_BLUR|PIXELATE|RGB_SHIFT|CRT|FILM_GRAIN|SHAKE|VIGNETTE|MEME_FUSION)",
       "effectReasoning": "string",
-      "reasoning": "string (Detailed explanation of your thought process and research findings)",
+      "reasoning": "string (Professional explanation of creative choices)",
       "imagePrompt": "string",
       "useVeo": boolean
     }
@@ -207,7 +216,7 @@ export const planScenes = async (beats: NarrativeBeat[], aspectRatio: AspectRati
       return scenes.map((s, i) => ({ 
         ...s, 
         id: s.id || `scene_${i}`, 
-        isLoading: true,
+        isLoading: false, // Ensure we don't show loading state initially
         visualEffect: s.visualEffect || 'NONE',
         // Distribute grounding chunks if references are empty to ensure we have data
         referenceLinks: (s.referenceLinks && s.referenceLinks.length > 0) 
@@ -221,6 +230,53 @@ export const planScenes = async (beats: NarrativeBeat[], aspectRatio: AspectRati
     throw error;
   }
 };
+
+export const mixAssets = async (assetA: string, assetB: string, aspectRatio: AspectRatio): Promise<{ imageUrl: string, groundingChunks: GroundingChunk[] }> => {
+    const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+    
+    let arStr = "16:9";
+    if (aspectRatio === '9:16') arStr = "9:16";
+    if (aspectRatio === '1:1') arStr = "1:1";
+
+    const prompt = `
+      Create a new image that conceptually combines:
+      1. ${assetA}
+      2. ${assetB}
+      
+      The result should be a seamless, artistic fusion of these two concepts.
+      High fidelity, cinematic lighting.
+    `;
+
+    try {
+        const response = await ai.models.generateContent({
+            model: IMAGE_MODEL,
+            contents: prompt,
+            config: {
+                imageConfig: {
+                    aspectRatio: arStr,
+                    imageSize: "2K"
+                }
+            },
+        });
+
+        const parts = response.candidates?.[0]?.content?.parts;
+        let imageUrl = '';
+        if (parts) {
+            for (const part of parts) {
+                if (part.inlineData && part.inlineData.data) {
+                    imageUrl = `data:${part.inlineData.mimeType};base64,${part.inlineData.data}`;
+                    break;
+                }
+            }
+        }
+        if (!imageUrl) throw new Error("No image generated");
+        return { imageUrl, groundingChunks: [] };
+
+    } catch (error) {
+        console.error("Asset Mix Error:", error);
+        throw error;
+    }
+}
 
 export const generateSceneImage = async (prompt: string, aspectRatio: AspectRatio): Promise<{ imageUrl: string, groundingChunks: GroundingChunk[] }> => {
   const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });

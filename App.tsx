@@ -14,6 +14,7 @@ import { PipelineSteps } from './components/PipelineSteps';
 import { SceneCard } from './components/SceneCard';
 import { PreviewPlayer } from './components/PreviewPlayer';
 import { ResearchPopup } from './components/ResearchPopup';
+import { FallingText } from './components/FallingText';
 import { 
   BrainCircuit, 
   Zap, 
@@ -249,7 +250,7 @@ export default function App() {
       dispatch({ type: 'SET_STATUS', payload: PipelineStep.SCENE_PLANNING });
       dispatch({ type: 'ADD_LOG', payload: 'Deep Research Agent: Planning visual scenes (Targeting 10+)...' });
 
-      const scenes = await GeminiService.planScenes(beats, state.aspectRatio, state.userLinks, strategyForm);
+      const scenes = await GeminiService.planScenes(beats, state.aspectRatio, state.userLinks, strategyForm, state.hookStyle);
       dispatch({ type: 'SET_SCENES', payload: scenes });
       
       dispatch({ type: 'SET_STATUS', payload: PipelineStep.REVIEW });
@@ -311,6 +312,19 @@ export default function App() {
       }, 15000);
 
   }, [state.scenes, state.voice, state.aspectRatio]);
+
+  const handleMixAssets = async (assetA: string, assetB: string) => {
+      if (!researchSceneId) return;
+      try {
+          const { imageUrl, groundingChunks } = await GeminiService.mixAssets(assetA, assetB, state.aspectRatio);
+          dispatch({ 
+              type: 'UPDATE_SCENE_IMAGE', 
+              payload: { id: researchSceneId, url: imageUrl, groundingChunks } 
+          });
+      } catch (e) {
+          console.error("Failed to mix", e);
+      }
+  };
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -380,7 +394,11 @@ export default function App() {
         </div>
       </header>
 
-      <main className="flex-1 flex flex-col pt-16">
+      <main className="flex-1 flex flex-col pt-16 relative">
+        {state.status === PipelineStep.SCENE_PLANNING && (
+            <FallingText topic={state.topic} />
+        )}
+
         {state.status === PipelineStep.IDLE ? (
           <div className="flex-1 flex flex-col items-center justify-center px-4 py-20 relative overflow-hidden">
             <div className="absolute top-0 left-1/2 -translate-x-1/2 w-[1000px] h-[500px] bg-blue-600/10 rounded-full blur-[120px] pointer-events-none" />
@@ -477,7 +495,7 @@ export default function App() {
             </div>
           </div>
         ) : (
-          <div className="flex-1 flex flex-col w-full px-6 py-8">
+          <div className="flex-1 flex flex-col w-full px-6 py-8 relative z-10">
             <div className="max-w-6xl mx-auto w-full">
                 <PipelineSteps currentStep={state.status} />
                 
@@ -691,6 +709,7 @@ export default function App() {
         <ResearchPopup 
             scene={activeResearchScene}
             onClose={() => setResearchSceneId(null)}
+            onMixAssets={handleMixAssets}
         />
       )}
     </div>
