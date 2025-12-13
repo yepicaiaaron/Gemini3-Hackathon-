@@ -247,7 +247,7 @@ export default function App() {
       dispatch({ type: 'SET_NARRATIVE', payload: beats });
       
       dispatch({ type: 'SET_STATUS', payload: PipelineStep.SCENE_PLANNING });
-      dispatch({ type: 'ADD_LOG', payload: 'Planning visual scenes (Targeting 10+)...' });
+      dispatch({ type: 'ADD_LOG', payload: 'Deep Research Agent: Planning visual scenes (Targeting 10+)...' });
 
       const scenes = await GeminiService.planScenes(beats, state.aspectRatio, state.userLinks, strategyForm);
       dispatch({ type: 'SET_SCENES', payload: scenes });
@@ -268,6 +268,7 @@ export default function App() {
      const scenes = state.scenes;
      
      scenes.forEach(async (scene) => {
+        // 1. Generate Base Image
         if (scene.imagePrompt && !scene.imageUrl) {
             try {
               const { imageUrl, groundingChunks } = await GeminiService.generateSceneImage(scene.imagePrompt, state.aspectRatio);
@@ -281,9 +282,10 @@ export default function App() {
             }
         }
         
-        if (scene.type === 'split_screen' || scene.visualEffect === 'ZOOM_BLUR') {
+        // 2. Generate Video if Veo is requested OR effect requires it
+        if (scene.useVeo || scene.type === 'split_screen' || scene.visualEffect === 'ZOOM_BLUR') {
             try {
-                dispatch({ type: 'ADD_LOG', payload: `Starting Veo generation for ${scene.id}...` });
+                dispatch({ type: 'ADD_LOG', payload: `Veo 3: Generating cinematic video for ${scene.id}...` });
                 const videoUrl = await GeminiService.generateVideo(scene.imagePrompt || scene.script, state.aspectRatio);
                 dispatch({ type: 'UPDATE_SCENE_VIDEO', payload: { id: scene.id, url: videoUrl } });
             } catch (e) {
@@ -292,6 +294,7 @@ export default function App() {
             }
         }
 
+        // 3. Generate Audio
         if (scene.script) {
             try {
               const url = await GeminiService.generateSpeech(scene.script, state.voice);
@@ -302,6 +305,7 @@ export default function App() {
         }
       });
 
+      // Simulate completion delay for UX
       setTimeout(() => {
           dispatch({ type: 'SET_STATUS', payload: PipelineStep.COMPLETE });
       }, 15000);

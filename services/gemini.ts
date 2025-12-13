@@ -53,7 +53,6 @@ export const analyzeRequest = async (input: string): Promise<VideoStrategy> => {
       contents: prompt,
       config: {
         tools: [{ googleSearch: {} }], 
-        // NOTE: removed responseMimeType to avoid 400 error with tools
       }
     });
 
@@ -142,51 +141,52 @@ export const planScenes = async (beats: NarrativeBeat[], aspectRatio: AspectRati
   const userLinksContext = userLinks.length > 0 ? `
     USER PROVIDED ASSETS (Use these links!):
     ${JSON.stringify(userLinks)}
-    
-    INSTRUCTIONS:
-    - Distribute these links across the scenes where they are most relevant.
-    - If a scene uses a user link, mention it in the 'visualResearchPlan' and add it to 'referenceLinks'.
   ` : '';
 
   const prompt = `
-    You are a Creative Director, VFX Supervisor, and Motion Designer agent.
-    Convert the following narrative beats into concrete video scenes.
-    CRITICAL: YOU MUST GENERATE AT LEAST 10 SCENES.
+    You are a Deep Research Agent and Lead Creative Director.
+    Convert the following narrative beats into high-fidelity video scenes.
+    
+    CRITICAL OBJECTIVES:
+    1. **Deep Research**: You MUST find real-world assets (Images/Videos) for every scene.
+       - Use 'googleSearch' to find specific, high-value visual references.
+       - Scoring: Each Image = 1pt, Video = 3pts. GOAL: >20 points total for the storyboard.
+       - "visualResearchPlan" must list exactly what you found.
+    
+    2. **Veo 3 Video Generation**:
+       - We need to bring this to life.
+       - **50-80% of scenes MUST utilize 'useVeo: true'**.
+       - Prioritize Veo for: Action shots, emotional character moments, complex abstract visualizations, and b-roll.
+       - Static images are only for specific diagrams or text overlays.
+
+    3. **Transparency**:
+       - Fill the "reasoning" field with a detailed explanation of WHY you chose this visual approach, what research you found, and why it fits the narrative.
+
     ASPECT RATIO: ${aspectRatio}
     ${strategyContext}
     ${userLinksContext}
     
     Beats: ${JSON.stringify(beats)}
     
-    ROLE: "Effects Agent"
-    - DO NOT use effects randomly. You must justify every choice.
+    OUTPUT FORMAT:
+    Return a RAW JSON ARRAY of objects.
     
-    ROLE: "Layout Agent"
-    - 'split_screen': Use when comparing two distinct concepts.
-    - 'article_card': Use when showing text headlines or quotes from research.
-    - 'diagram': Use for explaining processes.
-    - 'title': Use for big bold section headers.
-    
-    ROLE: "Visual Researcher"
-    - SCORING RULES: 
-      * Each Image found = 1 point
-      * Each Video found = 3 points
-      * GOAL: 60+ POINTS for the full video.
-    - REQUIREMENT: EVERY SCENE MUST have at least 2 external assets (URLs) identified. 
-    - Use the googleSearch tool to FIND these real URLs during planning if possible, or describe exactly what to search for.
-    - In 'visualResearchPlan', specifically list: "Find Video of X (3pts)" or "Find Image of Y (1pt)".
-    
-    For each scene, define:
-    - duration (2-8 seconds)
-    - type (article_card, split_screen, full_chart, diagram, title)
-    - primaryVisual (Short label of what is shown, e.g. "Bar Chart", "Photo of Computer")
-    - visualResearchPlan (Specific instructions on what image/video to find to meet the 60 point goal. e.g. "Find video of rocket launch (3pts) + Image of astronaut (1pt)")
-    - referenceLinks (Array of strings. REAL URLs if found, or placeholders if needed.)
-    - motionIntent (list of specific animation instructions)
-    - visualEffect (VisualEffect enum)
-    - effectReasoning (Why this effect?)
-    - imagePrompt (Detailed prompt for generation)
-    - script (Voiceover text)
+    JSON Schema per object:
+    {
+      "id": "string",
+      "duration": number,
+      "type": "string (article_card|split_screen|full_chart|diagram|title)",
+      "primaryVisual": "string",
+      "visualResearchPlan": "string",
+      "referenceLinks": ["string (url)"],
+      "script": "string",
+      "motionIntent": ["string", "string"],
+      "visualEffect": "string (NONE|VHS|GLITCH|ZOOM_BLUR|PIXELATE|RGB_SHIFT|CRT|FILM_GRAIN|SHAKE|VIGNETTE|MEME_FUSION)",
+      "effectReasoning": "string",
+      "reasoning": "string (Detailed explanation of your thought process and research findings)",
+      "imagePrompt": "string",
+      "useVeo": boolean
+    }
   `;
 
   try {
@@ -194,35 +194,14 @@ export const planScenes = async (beats: NarrativeBeat[], aspectRatio: AspectRati
       model: TEXT_MODEL,
       contents: prompt,
       config: {
-        tools: [{ googleSearch: {} }], // Enable search to allow finding real links during planning
-        responseMimeType: "application/json",
-        responseSchema: {
-          type: Type.ARRAY,
-          items: {
-            type: Type.OBJECT,
-            properties: {
-              id: { type: Type.STRING },
-              duration: { type: Type.NUMBER },
-              type: { type: Type.STRING, enum: ['article_card', 'split_screen', 'full_chart', 'diagram', 'title'] },
-              primaryVisual: { type: Type.STRING },
-              visualResearchPlan: { type: Type.STRING },
-              referenceLinks: { type: Type.ARRAY, items: { type: Type.STRING } },
-              script: { type: Type.STRING },
-              motionIntent: { type: Type.ARRAY, items: { type: Type.STRING } },
-              visualEffect: { type: Type.STRING, enum: ['NONE', 'VHS', 'GLITCH', 'ZOOM_BLUR', 'PIXELATE', 'RGB_SHIFT', 'CRT', 'FILM_GRAIN', 'SHAKE', 'VIGNETTE', 'MEME_FUSION'] },
-              effectReasoning: { type: Type.STRING },
-              imagePrompt: { type: Type.STRING }
-            },
-            required: ["id", "duration", "type", "script", "motionIntent", "visualEffect", "effectReasoning", "imagePrompt", "primaryVisual", "visualResearchPlan"]
-          }
-        }
+        tools: [{ googleSearch: {} }],
+        // responseMimeType removed to allow tool use
       }
     });
 
     if (response.text) {
-      const scenes = JSON.parse(response.text) as Scene[];
+      const scenes = cleanAndParseJSON(response.text) as Scene[];
       
-      // Post-processing to inject grounding if the model used search but didn't put it in JSON (common quirk)
       const groundingChunks = (response.candidates?.[0]?.groundingMetadata?.groundingChunks || []) as GroundingChunk[];
       
       return scenes.map((s, i) => ({ 
@@ -230,8 +209,10 @@ export const planScenes = async (beats: NarrativeBeat[], aspectRatio: AspectRati
         id: s.id || `scene_${i}`, 
         isLoading: true,
         visualEffect: s.visualEffect || 'NONE',
-        // Distribute grounding chunks if references are empty, just to ensure we have data
-        referenceLinks: s.referenceLinks?.length ? s.referenceLinks : groundingChunks.slice(i, i+2).map(g => g.web?.uri || '').filter(Boolean)
+        // Distribute grounding chunks if references are empty to ensure we have data
+        referenceLinks: (s.referenceLinks && s.referenceLinks.length > 0) 
+            ? s.referenceLinks 
+            : groundingChunks.slice(i, i+3).map(g => g.web?.uri || '').filter(Boolean)
       }));
     }
     throw new Error("No response text from scene planning");
@@ -244,8 +225,6 @@ export const planScenes = async (beats: NarrativeBeat[], aspectRatio: AspectRati
 export const generateSceneImage = async (prompt: string, aspectRatio: AspectRatio): Promise<{ imageUrl: string, groundingChunks: GroundingChunk[] }> => {
   const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
   
-  // Map our aspect ratio to ImageConfig aspect ratio
-  // Supported: "1:1", "3:4", "4:3", "9:16", "16:9"
   let arStr = "16:9";
   if (aspectRatio === '9:16') arStr = "9:16";
   if (aspectRatio === '1:1') arStr = "1:1";
@@ -310,7 +289,7 @@ export const generateVideo = async (prompt: string, aspectRatio: AspectRatio): P
     console.log("Starting video generation for:", prompt);
     let operation = await ai.models.generateVideos({
       model: VIDEO_MODEL,
-      prompt: prompt + ", highly detailed, 4k, cinematic lighting, photorealistic",
+      prompt: prompt + ", highly detailed, 4k, cinematic lighting, photorealistic, 24fps",
       config: {
         numberOfVideos: 1,
         resolution: '720p',
@@ -318,7 +297,6 @@ export const generateVideo = async (prompt: string, aspectRatio: AspectRatio): P
       }
     });
 
-    // Poll for completion
     while (!operation.done) {
       await new Promise(resolve => setTimeout(resolve, 5000));
       operation = await ai.operations.getVideosOperation({operation: operation});
@@ -327,7 +305,6 @@ export const generateVideo = async (prompt: string, aspectRatio: AspectRatio): P
     const videoUri = operation.response?.generatedVideos?.[0]?.video?.uri;
     if (!videoUri) throw new Error("No video URI returned");
 
-    // Fetch the video bytes
     const response = await fetch(`${videoUri}&key=${process.env.API_KEY}`);
     const blob = await response.blob();
     return URL.createObjectURL(blob);

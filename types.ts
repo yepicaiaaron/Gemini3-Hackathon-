@@ -56,11 +56,13 @@ export interface Scene {
   motionIntent: string[];
   visualEffect: VisualEffect;
   effectReasoning: string; 
-  visualResearchPlan: string; // New: Explain what assets are needed/used
-  referenceLinks?: string[]; // New: Specific user provided links for this scene
+  reasoning: string; // New: Detailed reasoning for the scene choice
+  visualResearchPlan: string; // Explain what assets are needed/used
+  referenceLinks?: string[]; 
   imagePrompt?: string;
   imageUrl?: string;
   videoUrl?: string;
+  useVeo?: boolean; // New: Should this scene be a video?
   audioUrl?: string;
   groundingChunks?: GroundingChunk[];
   isLoading?: boolean;
@@ -68,7 +70,7 @@ export interface Scene {
 
 export interface ProjectState {
   topic: string;
-  userLinks: string[]; // New: Links extracted from input
+  userLinks: string[]; 
   voice: string;
   hookStyle: HookStyle;
   aspectRatio: AspectRatio;
