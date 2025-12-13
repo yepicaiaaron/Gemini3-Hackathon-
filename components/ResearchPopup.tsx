@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { X, Globe, Search, ExternalLink, Image as ImageIcon, LayoutDashboard, Video, FileText, AlertTriangle, CheckCircle, Clock, Blend, Loader2 } from 'lucide-react';
+import { X, Globe, Search, ExternalLink, Image as ImageIcon, LayoutDashboard, Video, FileText, AlertTriangle, CheckCircle, Clock, Blend, Loader2, Maximize2, Eye } from 'lucide-react';
 import { Scene } from '../types';
 
 interface ResearchPopupProps {
@@ -10,7 +10,8 @@ interface ResearchPopupProps {
 
 export const ResearchPopup: React.FC<ResearchPopupProps> = ({ scene, onClose, onMixAssets }) => {
   const [activeTab, setActiveTab] = useState<'generated' | 'found'>('found');
-  const [selectedAssets, setSelectedAssets] = useState<string[]>([]); // Store URLs/Titles
+  const [selectedAssets, setSelectedAssets] = useState<string[]>([]); // Stores URLs
+  const [previewAsset, setPreviewAsset] = useState<{url: string, type: string, title: string} | null>(null);
   const [isMixing, setIsMixing] = useState(false);
 
   // Normalize assets
@@ -39,12 +40,13 @@ export const ResearchPopup: React.FC<ResearchPopupProps> = ({ scene, onClose, on
   const targetScore = 5; // Per scene target
   const progress = Math.min(100, (totalScore / targetScore) * 100);
 
-  const toggleAssetSelection = (assetTitle: string) => {
-    if (selectedAssets.includes(assetTitle)) {
-        setSelectedAssets(prev => prev.filter(t => t !== assetTitle));
+  const toggleAssetSelection = (e: React.MouseEvent, assetUrl: string) => {
+    e.stopPropagation(); // Prevent opening preview
+    if (selectedAssets.includes(assetUrl)) {
+        setSelectedAssets(prev => prev.filter(u => u !== assetUrl));
     } else {
         if (selectedAssets.length < 2) {
-            setSelectedAssets(prev => [...prev, assetTitle]);
+            setSelectedAssets(prev => [...prev, assetUrl]);
         }
     }
   };
@@ -53,7 +55,10 @@ export const ResearchPopup: React.FC<ResearchPopupProps> = ({ scene, onClose, on
       if (selectedAssets.length !== 2) return;
       setIsMixing(true);
       try {
-          await onMixAssets(selectedAssets[0], selectedAssets[1]);
+          // Find titles for the prompt, or just use URLs if titles ambiguous
+          const assetA = allAssets.find(a => a.url === selectedAssets[0])?.title || selectedAssets[0];
+          const assetB = allAssets.find(a => a.url === selectedAssets[1])?.title || selectedAssets[1];
+          await onMixAssets(selectedAssets[0], selectedAssets[1]); // Pass URLs to mixer
           setActiveTab('generated');
       } catch (e) {
           console.error("Mix failed", e);
@@ -63,38 +68,61 @@ export const ResearchPopup: React.FC<ResearchPopupProps> = ({ scene, onClose, on
       }
   };
 
-  const getPreview = (asset: any) => {
+  const openPreview = (asset: {url: string, type: string, title: string}) => {
+      setPreviewAsset(asset);
+  };
+
+  const getThumbnail = (asset: any) => {
       if (asset.type === 'image') {
           return (
-              <div className="w-full h-48 bg-black flex items-center justify-center overflow-hidden">
-                  <img src={asset.url} alt={asset.title} className="w-full h-full object-cover opacity-80 group-hover:opacity-100 transition-opacity" onError={(e) => (e.currentTarget.style.display = 'none')} />
-              </div>
+              <img src={asset.url} alt={asset.title} className="w-full h-full object-cover transition-transform duration-700 group-hover:scale-105" onError={(e) => (e.currentTarget.style.display = 'none')} />
           );
       }
       if (asset.type === 'video') {
           return (
-              <div className="w-full h-48 bg-black flex items-center justify-center overflow-hidden relative">
-                   <video src={asset.url} className="w-full h-full object-cover opacity-80" muted loop onMouseOver={e => e.currentTarget.play()} onMouseOut={e => e.currentTarget.pause()} />
-                   <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
-                       <div className="w-10 h-10 bg-white/10 backdrop-blur rounded-full flex items-center justify-center border border-white/20">
-                           <Video size={16} className="text-white" />
-                       </div>
-                   </div>
-              </div>
+              <video src={asset.url} className="w-full h-full object-cover transition-transform duration-700 group-hover:scale-105" muted loop onMouseOver={e => e.currentTarget.play()} onMouseOut={e => e.currentTarget.pause()} />
           );
       }
-      // Web Fallback
       return (
-          <div className="w-full h-48 bg-zinc-900 flex flex-col items-center justify-center p-6 border-b border-zinc-800 group-hover:bg-zinc-800 transition-colors">
-              <Globe size={32} className="text-zinc-700 mb-3 group-hover:text-blue-500 transition-colors" />
-              <p className="text-xs text-zinc-500 text-center line-clamp-2 px-4">{asset.title}</p>
+          <div className="w-full h-full bg-zinc-900 flex flex-col items-center justify-center p-6 text-zinc-700 group-hover:text-zinc-500">
+              <Globe size={32} />
           </div>
       );
   };
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/90 backdrop-blur-xl p-4 animate-in zoom-in-95 duration-200">
-      <div className="w-full max-w-5xl bg-zinc-950 border border-zinc-800 rounded-3xl shadow-2xl overflow-hidden flex flex-col h-[85vh]">
+      
+      {/* FULL SCREEN PREVIEW OVERLAY */}
+      {previewAsset && (
+          <div className="absolute inset-0 z-[60] bg-black/95 flex flex-col items-center justify-center p-8 animate-in fade-in duration-200" onClick={() => setPreviewAsset(null)}>
+              <button className="absolute top-6 right-6 p-4 bg-zinc-800 rounded-full text-white hover:bg-zinc-700">
+                  <X size={24} />
+              </button>
+              <div className="max-w-6xl max-h-[80vh] w-full flex items-center justify-center relative" onClick={e => e.stopPropagation()}>
+                  {previewAsset.type === 'video' ? (
+                      <video src={previewAsset.url} controls autoPlay className="max-w-full max-h-full rounded-lg shadow-2xl border border-zinc-800" />
+                  ) : previewAsset.type === 'image' ? (
+                      <img src={previewAsset.url} alt={previewAsset.title} className="max-w-full max-h-full object-contain rounded-lg shadow-2xl border border-zinc-800" />
+                  ) : (
+                      <div className="bg-zinc-900 p-12 rounded-2xl text-center border border-zinc-800">
+                          <Globe size={64} className="mx-auto mb-4 text-blue-500" />
+                          <h3 className="text-2xl font-bold text-white mb-4">{previewAsset.title}</h3>
+                          <a href={previewAsset.url} target="_blank" rel="noreferrer" className="inline-flex items-center gap-2 px-6 py-3 bg-blue-600 text-white rounded-full font-bold hover:bg-blue-500">
+                              Visit Website <ExternalLink size={16} />
+                          </a>
+                      </div>
+                  )}
+              </div>
+              <div className="absolute bottom-8 left-0 right-0 text-center pointer-events-none">
+                  <p className="text-zinc-400 font-mono text-sm bg-black/50 inline-block px-4 py-2 rounded-full backdrop-blur">
+                      {previewAsset.url}
+                  </p>
+              </div>
+          </div>
+      )}
+
+      <div className="w-full max-w-6xl bg-zinc-950 border border-zinc-800 rounded-3xl shadow-2xl overflow-hidden flex flex-col h-[90vh]">
         
         {/* Header */}
         <div className="flex items-center justify-between p-6 border-b border-zinc-800 bg-zinc-950/50 backdrop-blur">
@@ -126,7 +154,7 @@ export const ResearchPopup: React.FC<ResearchPopupProps> = ({ scene, onClose, on
                     className="mr-4 px-4 py-2 bg-purple-600 disabled:bg-zinc-800 disabled:text-zinc-600 text-white rounded-lg font-bold text-xs uppercase tracking-wide flex items-center gap-2 hover:bg-purple-500 transition-colors shadow-lg shadow-purple-900/20"
                   >
                       {isMixing ? <Loader2 size={14} className="animate-spin" /> : <Blend size={14} />}
-                      {isMixing ? 'Fusing...' : 'Fuse Selected (2)'}
+                      {isMixing ? 'Fusing...' : `Fuse Selected (${selectedAssets.length}/2)`}
                   </button>
               )}
 
@@ -185,36 +213,51 @@ export const ResearchPopup: React.FC<ResearchPopupProps> = ({ scene, onClose, on
                    ) : (
                        <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-4 gap-6">
                            {allAssets.map((asset, i) => {
-                               const isSelected = selectedAssets.includes(asset.title);
+                               const isSelected = selectedAssets.includes(asset.url);
                                return (
                                <div 
-                                 key={i} 
-                                 onClick={() => toggleAssetSelection(asset.title)}
-                                 className={`group cursor-pointer relative bg-zinc-900 border rounded-xl overflow-hidden transition-all hover:-translate-y-1 ${isSelected ? 'border-purple-500 ring-2 ring-purple-500/30 shadow-xl shadow-purple-900/20' : 'border-zinc-800 hover:border-zinc-600'}`}
+                                 key={`${asset.url}-${i}`}
+                                 className={`group relative bg-zinc-900 border rounded-xl overflow-hidden transition-all hover:-translate-y-1 hover:shadow-xl ${isSelected ? 'border-purple-500 ring-1 ring-purple-500 shadow-purple-900/20' : 'border-zinc-800 hover:border-zinc-600'}`}
                                >
-                                   {isSelected && (
-                                       <div className="absolute top-2 right-2 z-10 w-6 h-6 bg-purple-600 rounded-full flex items-center justify-center text-white shadow-lg">
-                                           <CheckCircle size={14} />
+                                   {/* Selection Checkbox (Top Right) */}
+                                   <div 
+                                      onClick={(e) => toggleAssetSelection(e, asset.url)}
+                                      className={`absolute top-2 right-2 z-20 w-6 h-6 rounded-full border cursor-pointer flex items-center justify-center transition-all ${isSelected ? 'bg-purple-600 border-purple-500 text-white' : 'bg-black/50 border-white/20 text-transparent hover:border-white/50'}`}
+                                   >
+                                       <CheckCircle size={14} />
+                                   </div>
+
+                                   {/* Preview Trigger (Main Body) */}
+                                   <div className="aspect-video w-full bg-black relative cursor-zoom-in" onClick={() => openPreview(asset)}>
+                                        {getThumbnail(asset)}
+                                        
+                                        {/* Overlay Icon */}
+                                        <div className="absolute inset-0 flex items-center justify-center bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity">
+                                            {asset.type === 'video' ? <Video size={24} className="text-white drop-shadow-lg" /> : <Eye size={24} className="text-white drop-shadow-lg" />}
+                                        </div>
+
+                                        {/* Type Badge */}
+                                        <div className="absolute bottom-2 left-2 z-10">
+                                            <span className={`text-[10px] font-bold px-2 py-0.5 rounded uppercase backdrop-blur-md ${
+                                                asset.type === 'video' ? 'bg-purple-900/80 text-purple-200' : 
+                                                asset.type === 'image' ? 'bg-green-900/80 text-green-200' : 
+                                                'bg-blue-900/80 text-blue-200'
+                                            }`}>
+                                                {asset.type}
+                                            </span>
+                                        </div>
+                                   </div>
+
+                                   <div className="p-4" onClick={() => openPreview(asset)}>
+                                       <div className="flex items-center justify-between mb-1">
+                                            <p className="text-xs text-zinc-500 font-mono truncate max-w-[80%]">
+                                                {new URL(asset.url).hostname}
+                                            </p>
+                                            <ExternalLink size={12} className="text-zinc-600 group-hover:text-zinc-400" />
                                        </div>
-                                   )}
-                                   {getPreview(asset)}
-                                   <div className="p-4">
-                                       <div className="flex items-center justify-between mb-2">
-                                           <span className={`text-[10px] font-bold px-2 py-0.5 rounded uppercase ${
-                                               asset.type === 'video' ? 'bg-purple-900/30 text-purple-400' : 
-                                               asset.type === 'image' ? 'bg-green-900/30 text-green-400' : 
-                                               'bg-blue-900/30 text-blue-400'
-                                           }`}>
-                                               {asset.type}
-                                           </span>
-                                           <ExternalLink size={12} className="text-zinc-600 group-hover:text-white" />
-                                       </div>
-                                       <h5 className="text-sm font-medium text-zinc-300 line-clamp-2 mb-1 group-hover:text-white transition-colors">
+                                       <h5 className="text-sm font-medium text-zinc-300 line-clamp-2 group-hover:text-white transition-colors cursor-pointer">
                                            {asset.title}
                                        </h5>
-                                       <p className="text-xs text-zinc-600 font-mono truncate opacity-60">
-                                           {new URL(asset.url).hostname}
-                                       </p>
                                    </div>
                                </div>
                                );
@@ -225,7 +268,7 @@ export const ResearchPopup: React.FC<ResearchPopupProps> = ({ scene, onClose, on
            )}
 
            {activeTab === 'generated' && (
-               <div className="max-w-4xl mx-auto space-y-8">
+               <div className="max-w-4xl mx-auto space-y-8 animate-in slide-in-from-right-4 duration-300">
                   <div className="aspect-video w-full bg-zinc-900 rounded-2xl overflow-hidden border border-zinc-800 relative group shadow-2xl">
                       {scene.imageUrl ? (
                           <img src={scene.imageUrl} alt="concept" className="w-full h-full object-cover" />

@@ -1,6 +1,7 @@
+
 import React, { useEffect, useState } from 'react';
-import { Scene, PipelineStep } from '../types';
-import { Clock, Film, Sparkles, Move, Search, Cpu, Edit2, PlayCircle, Mic, MonitorPlay, ExternalLink, Link2, FileSearch, Image as ImageIcon, Video as VideoIcon, AlertTriangle, Trophy, BrainCircuit } from 'lucide-react';
+import { Scene, PipelineStep, AssetStatus } from '../types';
+import { Clock, Film, Sparkles, Move, Search, Cpu, Edit2, PlayCircle, Mic, MonitorPlay, ExternalLink, Link2, FileSearch, Image as ImageIcon, Video as VideoIcon, AlertTriangle, Trophy, BrainCircuit, CheckCircle2, Loader2, XCircle, RefreshCw, Globe } from 'lucide-react';
 
 interface SceneCardProps {
   scene: Scene;
@@ -9,6 +10,7 @@ interface SceneCardProps {
   onClick: () => void;
   onViewResearch: (e: React.MouseEvent) => void;
   onEditScript: (e: React.MouseEvent) => void;
+  onRetryAsset?: (sceneId: string, type: 'audio' | 'image' | 'video') => void;
 }
 
 // Simple Typewriter component for the reasoning text
@@ -31,21 +33,56 @@ const Typewriter = ({ text, delay = 10 }: { text: string, delay?: number }) => {
     return <span>{displayedText}</span>;
 };
 
-export const SceneCard: React.FC<SceneCardProps> = ({ scene, index, status, onClick, onViewResearch, onEditScript }) => {
+const StatusRow = ({ 
+    label, 
+    status, 
+    onRetry, 
+    icon 
+}: { 
+    label: string, 
+    status: AssetStatus, 
+    onRetry: () => void, 
+    icon: React.ReactNode 
+}) => {
+    return (
+        <div className="flex items-center justify-between py-2 border-b border-zinc-800/50 last:border-0">
+            <div className="flex items-center gap-2 text-sm text-zinc-400">
+                {icon}
+                <span>{label}</span>
+            </div>
+            <div className="flex items-center gap-2">
+                {status === 'loading' && <Loader2 size={16} className="text-blue-500 animate-spin" />}
+                {status === 'success' && <CheckCircle2 size={16} className="text-green-500" />}
+                {status === 'error' && (
+                    <div className="flex items-center gap-2">
+                        <XCircle size={16} className="text-red-500" />
+                        <button onClick={onRetry} className="p-1 hover:bg-zinc-800 rounded transition-colors text-zinc-500 hover:text-zinc-300">
+                            <RefreshCw size={12} />
+                        </button>
+                    </div>
+                )}
+                {status === 'idle' && <div className="w-4 h-4 rounded-full border border-zinc-700" />}
+            </div>
+        </div>
+    );
+};
+
+export const SceneCard: React.FC<SceneCardProps> = ({ scene, index, status, onClick, onViewResearch, onEditScript, onRetryAsset }) => {
   const hasGrounding = scene.groundingChunks && scene.groundingChunks.length > 0;
   const hasUserLinks = scene.referenceLinks && scene.referenceLinks.length > 0;
   const isReviewMode = status === PipelineStep.REVIEW;
-  // Only show loading overlay if specifically in Asset Generation phase AND the scene is incomplete
-  const isGenerating = status === PipelineStep.ASSET_GENERATION && (!scene.imageUrl || !scene.audioUrl || (scene.useVeo && !scene.videoUrl));
-
+  const isProduction = status === PipelineStep.ASSET_GENERATION || status === PipelineStep.COMPLETE;
+  
   // Calculate Research Score
   const imageCount = scene.referenceLinks?.filter(l => l.match(/\.(jpeg|jpg|gif|png|webp)$/i))?.length || 0;
   const videoCount = scene.referenceLinks?.filter(l => l.match(/\.(mp4|mov|webm)$/i))?.length || 0;
   const webCount = scene.groundingChunks?.length || 0;
   
-  // Basic heuristic: Web results count as 1 point (potential images), direct Images 1, Videos 3.
   const researchScore = (imageCount * 1) + (videoCount * 3) + (webCount * 1);
   const isLowIntel = researchScore < 2;
+
+  // Determine which effects are requested for status checklist
+  const needsVideo = scene.useVeo || scene.type === 'split_screen' || scene.visualEffect === 'ZOOM_BLUR';
 
   return (
     <div 
@@ -61,23 +98,13 @@ export const SceneCard: React.FC<SceneCardProps> = ({ scene, index, status, onCl
               
               {/* Main Visual Area */}
               <div className="relative flex-1 overflow-hidden">
-                {/* Status Overlay - Only during production */}
-                {isGenerating ? (
-                    <div className="absolute inset-0 flex items-center justify-center bg-zinc-950/80 backdrop-blur-sm z-20">
-                        <div className="flex flex-col items-center gap-4">
-                            <div className="w-10 h-10 border-2 border-blue-500 border-t-transparent rounded-full animate-spin" />
-                            <p className="text-xs text-blue-400 font-mono animate-pulse tracking-widest">RENDERING ASSET...</p>
-                        </div>
-                    </div>
-                ) : null}
-
                 {/* Main Visual */}
                 {scene.imageUrl ? (
                     <div className="w-full h-full relative group/image">
                         <img 
                         src={scene.imageUrl} 
                         alt={scene.imagePrompt} 
-                        className="w-full h-full object-cover transition-transform duration-700 group-hover:scale-105"
+                        className={`w-full h-full object-cover transition-transform duration-700 group-hover:scale-105 ${scene.statusImage === 'loading' ? 'blur-sm' : ''}`}
                         />
                         {scene.videoUrl && (
                             <div className="absolute inset-0 flex items-center justify-center bg-black/20 backdrop-blur-[1px]">
@@ -107,13 +134,22 @@ export const SceneCard: React.FC<SceneCardProps> = ({ scene, index, status, onCl
                     </div>
                 ) : (
                     <div className="w-full h-full flex flex-col items-center justify-center text-zinc-700 gap-4 bg-zinc-950">
-                        <Film size={48} className="opacity-20" />
-                        <p className="text-xs font-mono uppercase tracking-widest opacity-40">Visual Placeholder</p>
+                        {scene.statusImage === 'loading' ? (
+                            <div className="flex flex-col items-center gap-4">
+                                <Loader2 size={48} className="animate-spin text-blue-500" />
+                                <p className="text-xs font-mono uppercase tracking-widest text-blue-400">Generating Visuals...</p>
+                            </div>
+                        ) : (
+                            <>
+                                <Film size={48} className="opacity-20" />
+                                <p className="text-xs font-mono uppercase tracking-widest opacity-40">Visual Placeholder</p>
+                            </>
+                        )}
                     </div>
                 )}
               </div>
 
-              {/* Reasoning Section (New) */}
+              {/* Reasoning Section */}
               <div className="bg-zinc-950/80 p-6 border-t border-zinc-800">
                   <div className="flex items-center gap-2 mb-2 text-blue-400 text-xs font-bold uppercase tracking-wider">
                       <BrainCircuit size={14} /> Agent Reasoning
@@ -163,69 +199,71 @@ export const SceneCard: React.FC<SceneCardProps> = ({ scene, index, status, onCl
                   </p>
               </div>
 
-              {/* Research Assets Dock - Upgraded */}
-              <div className="p-6 bg-black/20 border-t border-white/5">
-                  <div className="flex items-center justify-between mb-4">
-                     <label className="text-[10px] font-bold text-blue-400 uppercase tracking-widest flex items-center gap-2">
-                        <Search size={12} /> Reference Intelligence
-                     </label>
-                     <button onClick={onViewResearch} className="text-[10px] text-zinc-500 hover:text-white underline decoration-zinc-700 underline-offset-4">
-                         VIEW ALL ASSETS
-                     </button>
+              {/* Production Status Tab (Visible during production) */}
+              {isProduction && (
+                  <div className="px-6 py-4 bg-black/40 border-t border-white/5">
+                      <label className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest mb-3 block">
+                          Production Status
+                      </label>
+                      <StatusRow 
+                        label="Voice Over" 
+                        icon={<Mic size={14} />} 
+                        status={scene.statusAudio} 
+                        onRetry={() => onRetryAsset?.(scene.id, 'audio')} 
+                      />
+                      <StatusRow 
+                        label="Base Image" 
+                        icon={<ImageIcon size={14} />} 
+                        status={scene.statusImage} 
+                        onRetry={() => onRetryAsset?.(scene.id, 'image')} 
+                      />
+                      {needsVideo && (
+                          <StatusRow 
+                            label="Veo Motion Clip" 
+                            icon={<VideoIcon size={14} />} 
+                            status={scene.statusVideo} 
+                            onRetry={() => onRetryAsset?.(scene.id, 'video')} 
+                          />
+                      )}
                   </div>
-                  
-                  {(!hasGrounding && !hasUserLinks) ? (
-                      <div className="p-3 rounded-lg border border-dashed border-red-500/20 bg-red-500/5 text-center flex items-center justify-center gap-2">
-                          <div className="w-2 h-2 bg-red-500 rounded-full animate-pulse" />
-                          <p className="text-xs text-red-400 font-medium">Researching assets...</p>
-                      </div>
-                  ) : (
-                      <div className="grid grid-cols-2 gap-3">
-                          {/* User Links */}
-                          {scene.referenceLinks?.map((link, i) => (
-                              <button 
-                                  key={`user-${i}`}
-                                  onClick={onViewResearch}
-                                  className="flex items-center gap-3 p-3 rounded-xl bg-green-900/10 border border-green-500/20 hover:bg-green-900/20 hover:border-green-500/40 transition-all group/link text-left w-full"
-                              >
-                                  <div className="w-8 h-8 rounded-lg bg-green-500/10 flex items-center justify-center text-green-400 shrink-0">
-                                      {link.match(/\.(jpeg|jpg|gif|png)$/) ? <ImageIcon size={14} /> : <VideoIcon size={14} />}
-                                  </div>
-                                  <div className="overflow-hidden">
-                                      <p className="text-[10px] text-green-400 font-bold uppercase tracking-wider mb-0.5">User Asset</p>
-                                      <p className="text-xs text-zinc-400 truncate group-hover/link:text-zinc-200">{new URL(link).hostname}</p>
-                                  </div>
-                              </button>
-                          ))}
+              )}
 
-                          {/* Grounding Links */}
-                          {scene.groundingChunks?.slice(0, 4).map((chunk, i) => (
-                              <button 
-                                  key={`grounding-${i}`}
-                                  onClick={onViewResearch}
-                                  className="flex items-center gap-3 p-3 rounded-xl bg-blue-900/10 border border-blue-500/20 hover:bg-blue-900/20 hover:border-blue-500/40 transition-all group/link text-left w-full"
-                              >
-                                  <div className="w-8 h-8 rounded-lg bg-blue-500/10 flex items-center justify-center text-blue-400 shrink-0">
-                                      <ExternalLink size={14} />
-                                  </div>
-                                  <div className="overflow-hidden">
-                                      <p className="text-[10px] text-blue-400 font-bold uppercase tracking-wider mb-0.5">Research</p>
-                                      <p className="text-xs text-zinc-400 truncate group-hover/link:text-zinc-200">{chunk.web?.title || 'Web Source'}</p>
-                                  </div>
-                              </button>
-                          ))}
+              {/* Research Assets Dock (Only visible in review or if no production yet) */}
+              {!isProduction && (
+                  <div className="p-6 bg-black/20 border-t border-white/5">
+                      <div className="flex items-center justify-between mb-4">
+                        <label className="text-[10px] font-bold text-blue-400 uppercase tracking-widest flex items-center gap-2">
+                            <Search size={12} /> Reference Intelligence
+                        </label>
+                        <button onClick={onViewResearch} className="text-[10px] text-zinc-500 hover:text-white underline decoration-zinc-700 underline-offset-4">
+                            VIEW ALL ASSETS
+                        </button>
                       </div>
-                  )}
-                  
-                  {/* Visual Research Plan Text */}
-                  {scene.visualResearchPlan && (
-                      <div className="mt-4 pt-4 border-t border-white/5">
-                          <p className="text-[10px] text-zinc-500 font-mono leading-relaxed">
-                              <span className="text-zinc-400 font-bold">PLAN:</span> {scene.visualResearchPlan}
-                          </p>
-                      </div>
-                  )}
-              </div>
+                      
+                      {(!hasGrounding && !hasUserLinks) ? (
+                          <div className="p-3 rounded-lg border border-dashed border-red-500/20 bg-red-500/5 text-center flex items-center justify-center gap-2">
+                              <div className="w-2 h-2 bg-red-500 rounded-full animate-pulse" />
+                              <p className="text-xs text-red-400 font-medium">Researching assets...</p>
+                          </div>
+                      ) : (
+                          <div className="grid grid-cols-2 gap-3">
+                              {/* Links Render Logic */}
+                              {scene.referenceLinks?.slice(0, 2).map((link, i) => (
+                                  <button key={i} className="bg-green-900/10 border border-green-500/20 p-2 rounded flex items-center gap-2">
+                                      <div className="w-6 h-6 bg-green-500/20 rounded flex items-center justify-center"><Link2 size={12} className="text-green-400"/></div>
+                                      <span className="text-[10px] text-zinc-400 truncate w-20">User Asset</span>
+                                  </button>
+                              ))}
+                              {scene.groundingChunks?.slice(0, 2).map((chunk, i) => (
+                                  <button key={i} className="bg-blue-900/10 border border-blue-500/20 p-2 rounded flex items-center gap-2">
+                                      <div className="w-6 h-6 bg-blue-500/20 rounded flex items-center justify-center"><Globe size={12} className="text-blue-400"/></div>
+                                      <span className="text-[10px] text-zinc-400 truncate w-20">{chunk.web?.title || 'Web'}</span>
+                                  </button>
+                              ))}
+                          </div>
+                      )}
+                  </div>
+              )}
           </div>
       </div>
     </div>

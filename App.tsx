@@ -1,3 +1,4 @@
+
 import React, { useState, useReducer, useCallback, useEffect, useRef } from 'react';
 import { 
   ProjectState, 
@@ -7,7 +8,8 @@ import {
   GroundingChunk,
   VideoStrategy,
   HookStyle,
-  AspectRatio
+  AspectRatio,
+  AssetStatus
 } from './types';
 import * as GeminiService from './services/gemini';
 import { PipelineSteps } from './components/PipelineSteps';
@@ -36,7 +38,9 @@ import {
   ChevronDown,
   Sparkles,
   PlayCircle,
-  Activity
+  Activity,
+  Timer,
+  Server
 } from 'lucide-react';
 
 const initialState: ProjectState = {
@@ -61,10 +65,34 @@ const VOICES = [
 ];
 
 const HOOKS: {id: HookStyle, label: string, icon: React.ReactNode, asset: string, type: 'video' | 'image'}[] = [
-    { id: 'AI_SELECTED', label: 'AI-Selected', icon: <Zap size={14} />, asset: 'ai selected.jpg', type: 'image' },
-    { id: 'FAST_CUT', label: 'Fast Cut', icon: <Scissors size={14} />, asset: 'Fast Cut.mp4', type: 'video' },
-    { id: 'ARTICLE_HIGHLIGHT', label: 'Article Highlight', icon: <FileText size={14} />, asset: 'Article Highlight.mp4', type: 'video' },
-    { id: 'TEXT_MATCH', label: 'Text Match', icon: <Type size={14} />, asset: 'Text Match.mp4', type: 'video' },
+    { 
+      id: 'AI_SELECTED', 
+      label: 'AI-Selected', 
+      icon: <Zap size={14} />, 
+      asset: 'https://images.unsplash.com/photo-1677442136019-21780ecad995?q=80&w=800&auto=format&fit=crop', 
+      type: 'image' 
+    },
+    { 
+      id: 'FAST_CUT', 
+      label: 'Fast Cut', 
+      icon: <Scissors size={14} />, 
+      asset: 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerJoyrides.mp4', 
+      type: 'video' 
+    },
+    { 
+      id: 'ARTICLE_HIGHLIGHT', 
+      label: 'Article Highlight', 
+      icon: <FileText size={14} />, 
+      asset: 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerEscapes.mp4', 
+      type: 'video' 
+    },
+    { 
+      id: 'TEXT_MATCH', 
+      label: 'Text Match', 
+      icon: <Type size={14} />, 
+      asset: 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/WeAreGoingOnBullrun.mp4', 
+      type: 'video' 
+    },
 ];
 
 const AUDIENCE_OPTIONS = [
@@ -103,6 +131,18 @@ function reducer(state: ProjectState, action: AgentAction): ProjectState {
       return { ...state, narrativeBeats: action.payload, logs: [...state.logs, 'Narrative beats generated.'] };
     case 'SET_SCENES':
       return { ...state, scenes: action.payload, logs: [...state.logs, 'Scenes planned. Review required.'] };
+    case 'UPDATE_ASSET_STATUS':
+      return {
+        ...state,
+        scenes: state.scenes.map(s => {
+          if (s.id !== action.payload.id) return s;
+          const updates: any = {};
+          if (action.payload.type === 'audio') updates.statusAudio = action.payload.status;
+          if (action.payload.type === 'image') updates.statusImage = action.payload.status;
+          if (action.payload.type === 'video') updates.statusVideo = action.payload.status;
+          return { ...s, ...updates };
+        })
+      };
     case 'UPDATE_SCENE_IMAGE':
       return {
         ...state,
@@ -110,19 +150,27 @@ function reducer(state: ProjectState, action: AgentAction): ProjectState {
             ...s, 
             imageUrl: action.payload.url, 
             groundingChunks: action.payload.groundingChunks,
-            isLoading: !s.audioUrl && !action.payload.url 
+            statusImage: 'success'
         } : s)
       };
     case 'UPDATE_SCENE_VIDEO':
       return {
         ...state,
-        scenes: state.scenes.map(s => s.id === action.payload.id ? { ...s, videoUrl: action.payload.url } : s),
+        scenes: state.scenes.map(s => s.id === action.payload.id ? { 
+            ...s, 
+            videoUrl: action.payload.url,
+            statusVideo: 'success'
+        } : s),
         logs: [...state.logs, `Video generated for ${action.payload.id}`]
       };
     case 'UPDATE_SCENE_AUDIO':
       return {
         ...state,
-        scenes: state.scenes.map(s => s.id === action.payload.id ? { ...s, audioUrl: action.payload.url } : s),
+        scenes: state.scenes.map(s => s.id === action.payload.id ? { 
+            ...s, 
+            audioUrl: action.payload.url,
+            statusAudio: 'success'
+        } : s),
         logs: [...state.logs, `Audio generated for ${action.payload.id}`]
       };
     case 'UPDATE_SCENE_SCRIPT':
@@ -140,6 +188,28 @@ function reducer(state: ProjectState, action: AgentAction): ProjectState {
       return state;
   }
 }
+
+// Simple Countdown Timer Component
+const ProductionTimer = () => {
+    const [seconds, setSeconds] = useState(180); // 3 minutes total
+
+    useEffect(() => {
+        const timer = setInterval(() => {
+            setSeconds(prev => Math.max(0, prev - 1));
+        }, 1000);
+        return () => clearInterval(timer);
+    }, []);
+
+    const mins = Math.floor(seconds / 60);
+    const secs = seconds % 60;
+
+    return (
+        <div className="flex items-center gap-2 text-blue-400 font-mono text-sm bg-blue-500/10 px-3 py-1 rounded-full border border-blue-500/20 animate-pulse">
+            <Timer size={14} />
+            <span>EST. REMAINING: {mins}:{secs.toString().padStart(2, '0')}</span>
+        </div>
+    );
+};
 
 export default function App() {
   const [state, dispatch] = useReducer(reducer, initialState);
@@ -261,56 +331,102 @@ export default function App() {
     }
   }, [strategyForm, state.topic, state.hookStyle, state.aspectRatio, state.userLinks]);
 
-  // Phase 3: Production
+  // --- ASSET GENERATION PIPELINE ---
+
+  // Helper to generate audio for a scene
+  const generateAudioForScene = async (sceneId: string, script: string) => {
+    dispatch({ type: 'UPDATE_ASSET_STATUS', payload: { id: sceneId, type: 'audio', status: 'loading' } });
+    try {
+        const url = await GeminiService.generateSpeech(script, state.voice);
+        dispatch({ type: 'UPDATE_SCENE_AUDIO', payload: { id: sceneId, url } });
+        return true;
+    } catch (e) {
+        console.error(`Audio failed for ${sceneId}`, e);
+        dispatch({ type: 'UPDATE_ASSET_STATUS', payload: { id: sceneId, type: 'audio', status: 'error' } });
+        return false;
+    }
+  };
+
+  // Helper to generate image for a scene
+  const generateImageForScene = async (sceneId: string, prompt: string) => {
+    dispatch({ type: 'UPDATE_ASSET_STATUS', payload: { id: sceneId, type: 'image', status: 'loading' } });
+    try {
+        const { imageUrl, groundingChunks } = await GeminiService.generateSceneImage(prompt, state.aspectRatio);
+        dispatch({ type: 'UPDATE_SCENE_IMAGE', payload: { id: sceneId, url: imageUrl, groundingChunks } });
+        return imageUrl;
+    } catch (e) {
+        console.error(`Image failed for ${sceneId}`, e);
+        dispatch({ type: 'UPDATE_ASSET_STATUS', payload: { id: sceneId, type: 'image', status: 'error' } });
+        return null;
+    }
+  };
+
+  // Helper to generate video for a scene (needs image)
+  const generateVideoForScene = async (sceneId: string, prompt: string, imageUrl: string) => {
+    dispatch({ type: 'UPDATE_ASSET_STATUS', payload: { id: sceneId, type: 'video', status: 'loading' } });
+    try {
+        // Veo needs prompt and starting image
+        const videoUrl = await GeminiService.generateVideo(prompt, state.aspectRatio, imageUrl);
+        dispatch({ type: 'UPDATE_SCENE_VIDEO', payload: { id: sceneId, url: videoUrl } });
+        return true;
+    } catch (e) {
+        console.error(`Video failed for ${sceneId}`, e);
+        dispatch({ type: 'UPDATE_ASSET_STATUS', payload: { id: sceneId, type: 'video', status: 'error' } });
+        return false;
+    }
+  };
+
+  // Main Pipeline Orchestrator per scene
+  const processScene = async (scene: Scene) => {
+      // 1. Audio First
+      const audioSuccess = await generateAudioForScene(scene.id, scene.script);
+      
+      // 2. Image Second (only if we want to proceed, but audio failure shouldn't necessarily block visual drafting, though instructions say "voice first then images")
+      // Strict interpretation: Voice First -> Then Images.
+      
+      let generatedImageUrl = null;
+      if (audioSuccess || !scene.script) { // Proceed if audio done or no script needed
+          generatedImageUrl = await generateImageForScene(scene.id, scene.imagePrompt || scene.script);
+      }
+
+      // 3. Video Last (Veo 3 from Image)
+      if (generatedImageUrl && (scene.useVeo || scene.type === 'split_screen' || scene.visualEffect === 'ZOOM_BLUR')) {
+          await generateVideoForScene(scene.id, scene.imagePrompt || scene.script, generatedImageUrl);
+      }
+  };
+
+  // Retry Handler
+  const handleRetryAsset = async (sceneId: string, type: 'audio' | 'image' | 'video') => {
+      const scene = state.scenes.find(s => s.id === sceneId);
+      if (!scene) return;
+
+      if (type === 'audio') {
+          await generateAudioForScene(sceneId, scene.script);
+      } else if (type === 'image') {
+          const imgUrl = await generateImageForScene(sceneId, scene.imagePrompt || scene.script);
+          // Auto-trigger video retry if image succeeds and video was needed? 
+          // For now, let user retry video manually to keep control.
+      } else if (type === 'video') {
+          if (!scene.imageUrl) {
+              alert("Cannot generate video without a base image. Retry image first.");
+              return;
+          }
+          await generateVideoForScene(sceneId, scene.imagePrompt || scene.script, scene.imageUrl);
+      }
+  };
+
+  // Phase 3: Production Trigger
   const approveAndGenerate = useCallback(async () => {
      dispatch({ type: 'SET_STATUS', payload: PipelineStep.ASSET_GENERATION });
-     dispatch({ type: 'ADD_LOG', payload: 'Scripts approved. Starting production...' });
+     dispatch({ type: 'ADD_LOG', payload: 'Scripts approved. Starting sequential production...' });
 
-     const scenes = state.scenes;
-     
-     scenes.forEach(async (scene) => {
-        // 1. Generate Base Image
-        if (scene.imagePrompt && !scene.imageUrl) {
-            try {
-              const { imageUrl, groundingChunks } = await GeminiService.generateSceneImage(scene.imagePrompt, state.aspectRatio);
-              dispatch({ 
-                type: 'UPDATE_SCENE_IMAGE', 
-                payload: { id: scene.id, url: imageUrl, groundingChunks } 
-              });
-            } catch (e: any) {
-              console.error(`Failed to gen image for ${scene.id}`, e);
-              dispatch({ type: 'UPDATE_SCENE_IMAGE', payload: { id: scene.id, url: 'https://picsum.photos/1280/720?error' } });
-            }
-        }
-        
-        // 2. Generate Video if Veo is requested OR effect requires it
-        if (scene.useVeo || scene.type === 'split_screen' || scene.visualEffect === 'ZOOM_BLUR') {
-            try {
-                dispatch({ type: 'ADD_LOG', payload: `Veo 3: Generating cinematic video for ${scene.id}...` });
-                const videoUrl = await GeminiService.generateVideo(scene.imagePrompt || scene.script, state.aspectRatio);
-                dispatch({ type: 'UPDATE_SCENE_VIDEO', payload: { id: scene.id, url: videoUrl } });
-            } catch (e) {
-                console.error("Veo Gen failed", e);
-                dispatch({ type: 'ADD_LOG', payload: `Veo generation failed for ${scene.id}` });
-            }
-        }
+     // Launch all scenes in parallel, but internally they follow the sequence
+     state.scenes.forEach(scene => {
+         processScene(scene);
+     });
 
-        // 3. Generate Audio
-        if (scene.script) {
-            try {
-              const url = await GeminiService.generateSpeech(scene.script, state.voice);
-              dispatch({ type: 'UPDATE_SCENE_AUDIO', payload: { id: scene.id, url } });
-            } catch (e) {
-              console.error(`Failed to gen audio for ${scene.id}`, e);
-            }
-        }
-      });
-
-      // Simulate completion delay for UX
-      setTimeout(() => {
-          dispatch({ type: 'SET_STATUS', payload: PipelineStep.COMPLETE });
-      }, 15000);
-
+     // Completion check logic is handled by UI state mostly, but we can set a timeout or check statuses
+     // For UX, we just let it run.
   }, [state.scenes, state.voice, state.aspectRatio]);
 
   const handleMixAssets = async (assetA: string, assetB: string) => {
@@ -609,8 +725,16 @@ export default function App() {
                     <div className="flex-1 pb-40 space-y-24 min-w-0">
                         <div className="flex justify-between items-end border-b border-zinc-800 pb-4 mb-10">
                             <div>
-                                <h1 className="text-4xl font-bold text-white mb-2">Storyboard</h1>
-                                <p className="text-zinc-400">Review assets, scripts, and visual direction.</p>
+                                <div className="flex items-center gap-3">
+                                    <h1 className="text-4xl font-bold text-white mb-2">Storyboard</h1>
+                                    {state.status === PipelineStep.ASSET_GENERATION && <ProductionTimer />}
+                                </div>
+                                <p className="text-zinc-400">
+                                    {state.status === PipelineStep.ASSET_GENERATION 
+                                        ? "Generating high-fidelity assets (Audio → Image → Video)..." 
+                                        : "Review assets, scripts, and visual direction."
+                                    }
+                                </p>
                             </div>
                             {state.status === PipelineStep.COMPLETE && (
                                 <button 
@@ -652,6 +776,7 @@ export default function App() {
                                         setEditingSceneId(scene.id);
                                         setEditScriptText(scene.script);
                                     }}
+                                    onRetryAsset={handleRetryAsset}
                                 />
                             </div>
                         ))}

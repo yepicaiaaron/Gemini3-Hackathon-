@@ -1,3 +1,4 @@
+
 export enum PipelineStep {
   IDLE = 'IDLE',
   ANALYZING = 'ANALYZING', // Agent analyzes input/link
@@ -47,6 +48,8 @@ export type VisualEffect =
 export type HookStyle = 'AI_SELECTED' | 'FAST_CUT' | 'ARTICLE_HIGHLIGHT' | 'TEXT_MATCH';
 export type AspectRatio = '16:9' | '9:16' | '1:1';
 
+export type AssetStatus = 'idle' | 'loading' | 'success' | 'error';
+
 export interface Scene {
   id: string;
   duration: number; // seconds
@@ -65,7 +68,11 @@ export interface Scene {
   useVeo?: boolean; // New: Should this scene be a video?
   audioUrl?: string;
   groundingChunks?: GroundingChunk[];
-  isLoading?: boolean;
+  
+  // Asset Generation Status Tracking
+  statusAudio: AssetStatus;
+  statusImage: AssetStatus;
+  statusVideo: AssetStatus;
 }
 
 export interface ProjectState {
@@ -88,6 +95,7 @@ export type AgentAction =
   | { type: 'SET_STATUS'; payload: PipelineStep }
   | { type: 'SET_NARRATIVE'; payload: NarrativeBeat[] }
   | { type: 'SET_SCENES'; payload: Scene[] }
+  | { type: 'UPDATE_ASSET_STATUS'; payload: { id: string; type: 'audio' | 'image' | 'video'; status: AssetStatus } }
   | { type: 'UPDATE_SCENE_IMAGE'; payload: { id: string; url: string; groundingChunks?: GroundingChunk[] } }
   | { type: 'UPDATE_SCENE_VIDEO'; payload: { id: string; url: string } }
   | { type: 'UPDATE_SCENE_SCRIPT'; payload: { id: string; script: string } }

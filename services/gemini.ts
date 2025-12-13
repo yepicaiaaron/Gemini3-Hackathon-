@@ -1,3 +1,4 @@
+
 import { GoogleGenAI, Type } from "@google/genai";
 import { NarrativeBeat, Scene, GroundingChunk, VisualEffect, VideoStrategy, HookStyle, AspectRatio } from "../types";
 
@@ -59,6 +60,18 @@ export const analyzeRequest = async (input: string): Promise<VideoStrategy> => {
     if (response.text) {
       return cleanAndParseJSON(response.text) as VideoStrategy;
     }
+    
+    // Fallback if search fails to produce text
+    console.warn("Analysis search yielded no text, retrying without search...");
+    const fallbackResponse = await ai.models.generateContent({
+        model: TEXT_MODEL,
+        contents: prompt,
+        config: { responseMimeType: "application/json" }
+    });
+    if (fallbackResponse.text) {
+        return cleanAndParseJSON(fallbackResponse.text) as VideoStrategy;
+    }
+
     throw new Error("Failed to generate strategy");
   } catch (error) {
     console.error("Analysis Error:", error);
@@ -199,24 +212,48 @@ export const planScenes = async (beats: NarrativeBeat[], aspectRatio: AspectRati
   `;
 
   try {
-    const response = await ai.models.generateContent({
-      model: TEXT_MODEL,
-      contents: prompt,
-      config: {
-        tools: [{ googleSearch: {} }],
-        // responseMimeType removed to allow tool use
-      }
-    });
+    let response;
+    let usedSearch = false;
+
+    // ATTEMPT 1: Try with Google Search (Best Quality)
+    try {
+      console.log("Attempting scene planning WITH search...");
+      response = await ai.models.generateContent({
+        model: TEXT_MODEL,
+        contents: prompt,
+        config: {
+          tools: [{ googleSearch: {} }],
+        }
+      });
+      if (!response.text) throw new Error("Empty text response with search");
+      usedSearch = true;
+    } catch (searchError) {
+      console.warn("Scene planning with search failed. Falling back to creative generation.", searchError);
+      
+      // ATTEMPT 2: Fallback without Search (Reliability)
+      // We append a note to the prompt to handle the missing tool gracefully.
+      response = await ai.models.generateContent({
+        model: TEXT_MODEL,
+        contents: prompt + "\n\nNOTE: Search unavailable. Create realistic placeholder descriptions for assets.",
+        config: {
+          responseMimeType: "application/json"
+        }
+      });
+    }
 
     if (response.text) {
       const scenes = cleanAndParseJSON(response.text) as Scene[];
       
-      const groundingChunks = (response.candidates?.[0]?.groundingMetadata?.groundingChunks || []) as GroundingChunk[];
+      const groundingChunks = usedSearch 
+        ? (response.candidates?.[0]?.groundingMetadata?.groundingChunks || []) as GroundingChunk[]
+        : [];
       
       return scenes.map((s, i) => ({ 
         ...s, 
         id: s.id || `scene_${i}`, 
-        isLoading: false, // Ensure we don't show loading state initially
+        statusAudio: 'idle',
+        statusImage: 'idle',
+        statusVideo: 'idle',
         visualEffect: s.visualEffect || 'NONE',
         // Distribute grounding chunks if references are empty to ensure we have data
         referenceLinks: (s.referenceLinks && s.referenceLinks.length > 0) 
@@ -224,7 +261,7 @@ export const planScenes = async (beats: NarrativeBeat[], aspectRatio: AspectRati
             : groundingChunks.slice(i, i+3).map(g => g.web?.uri || '').filter(Boolean)
       }));
     }
-    throw new Error("No response text from scene planning");
+    throw new Error("No response text from scene planning (Fallback failed)");
   } catch (error) {
     console.error("Scene Planning Error:", error);
     throw error;
@@ -328,30 +365,51 @@ export const generateSceneImage = async (prompt: string, aspectRatio: AspectRati
 
   } catch (error) {
     console.error("Image Gen Error:", error);
-    return { 
-      imageUrl: `https://picsum.photos/seed/${Math.random()}/1280/720`, 
-      groundingChunks: [] 
-    }; 
+    // Return a flag or placeholder but maintain structure.
+    // The calling function handles fallback/status.
+    throw error;
   }
 };
 
-export const generateVideo = async (prompt: string, aspectRatio: AspectRatio): Promise<string> => {
+export const generateVideo = async (prompt: string, aspectRatio: AspectRatio, inputImageBase64?: string): Promise<string> => {
   const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
   
   let arStr = "16:9";
   if (aspectRatio === '9:16') arStr = "9:16";
 
   try {
-    console.log("Starting video generation for:", prompt);
-    let operation = await ai.models.generateVideos({
-      model: VIDEO_MODEL,
-      prompt: prompt + ", highly detailed, 4k, cinematic lighting, photorealistic, 24fps",
-      config: {
-        numberOfVideos: 1,
-        resolution: '720p',
-        aspectRatio: arStr
-      }
-    });
+    console.log("Starting video generation for:", prompt, inputImageBase64 ? "with input image" : "from scratch");
+    
+    let operation;
+
+    if (inputImageBase64) {
+        // Strip data prefix if present (e.g. "data:image/jpeg;base64,")
+        const base64Clean = inputImageBase64.replace(/^data:image\/(png|jpeg|webp);base64,/, "");
+        
+        operation = await ai.models.generateVideos({
+            model: VIDEO_MODEL,
+            prompt: prompt + ", cinematic movement, high fidelity",
+            image: {
+                imageBytes: base64Clean,
+                mimeType: 'image/jpeg' // Assuming jpeg for generated images usually
+            },
+            config: {
+                numberOfVideos: 1,
+                resolution: '720p',
+                aspectRatio: arStr
+            }
+        });
+    } else {
+        operation = await ai.models.generateVideos({
+            model: VIDEO_MODEL,
+            prompt: prompt + ", highly detailed, 4k, cinematic lighting, photorealistic, 24fps",
+            config: {
+                numberOfVideos: 1,
+                resolution: '720p',
+                aspectRatio: arStr
+            }
+        });
+    }
 
     while (!operation.done) {
       await new Promise(resolve => setTimeout(resolve, 5000));
