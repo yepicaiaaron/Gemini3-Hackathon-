@@ -160,41 +160,33 @@ export const planScenes = async (beats: NarrativeBeat[], aspectRatio: AspectRati
     
     ROLE: "Effects Agent"
     - DO NOT use effects randomly. You must justify every choice.
-    - 'VHS' / 'CRT' / 'FILM_GRAIN': Use ONLY for history, flashbacks, or establishing a "rough" aesthetic.
-    - 'GLITCH' / 'RGB_SHIFT': Use ONLY for errors, system failures, or digital transitions.
-    - 'ZOOM_BLUR' / 'SHAKE': Use for high impact or sudden realization.
-    - 'NONE': Use for clean, informational scenes (charts, avatars).
     
     ROLE: "Layout Agent"
     - 'split_screen': Use when comparing two distinct concepts.
     - 'article_card': Use when showing text headlines or quotes from research.
     - 'diagram': Use for explaining processes.
     - 'title': Use for big bold section headers.
-    - DO NOT use 'avatar' scenes.
-    
-    ROLE: "Motion Designer"
-    - Describe 'motionIntent' in terms of animating specific assets (e.g., "Pan slowly across the chart", "Scale up the logo", "Slide in the text"). 
-    - Focus on the movement of elements within the frame.
     
     ROLE: "Visual Researcher"
-    - Create a 'visualResearchPlan' for each scene. This tells the human or AI exactly what to find.
-    - e.g. "Find a screenshot of the 2024 AI report", "Use the YouTube link provided by user", "Generate a 3D bar chart".
-    
-    CRITICAL FOR IMAGE PROMPTS:
-    - If type is 'split_screen': The prompt MUST describe a split screen composition explicitly (e.g., "Split screen video with [A] on left and [B] on right").
-    - Ensure the composition fits the ${aspectRatio} aspect ratio.
+    - SCORING RULES: 
+      * Each Image found = 1 point
+      * Each Video found = 3 points
+      * GOAL: 60+ POINTS for the full video.
+    - REQUIREMENT: EVERY SCENE MUST have at least 2 external assets (URLs) identified. 
+    - Use the googleSearch tool to FIND these real URLs during planning if possible, or describe exactly what to search for.
+    - In 'visualResearchPlan', specifically list: "Find Video of X (3pts)" or "Find Image of Y (1pt)".
     
     For each scene, define:
     - duration (2-8 seconds)
     - type (article_card, split_screen, full_chart, diagram, title)
     - primaryVisual (Short label of what is shown, e.g. "Bar Chart", "Photo of Computer")
-    - visualResearchPlan (Specific instructions on what image/video to find. Mention user links if used.)
-    - referenceLinks (Array of strings. Any specific user URLs relevant to this scene.)
-    - motionIntent (list of specific animation instructions for assets)
-    - visualEffect (ONE from: 'VHS', 'GLITCH', 'ZOOM_BLUR', 'PIXELATE', 'RGB_SHIFT', 'CRT', 'FILM_GRAIN', 'SHAKE', 'VIGNETTE', 'MEME_FUSION', 'NONE')
-    - effectReasoning (One sentence explaining WHY this effect was chosen. e.g. "Glitch effect used to emphasize the system crash.")
-    - imagePrompt (Detailed prompt for image/video generation. This dictates the assets created.)
-    - script (Voiceover text. concise.)
+    - visualResearchPlan (Specific instructions on what image/video to find to meet the 60 point goal. e.g. "Find video of rocket launch (3pts) + Image of astronaut (1pt)")
+    - referenceLinks (Array of strings. REAL URLs if found, or placeholders if needed.)
+    - motionIntent (list of specific animation instructions)
+    - visualEffect (VisualEffect enum)
+    - effectReasoning (Why this effect?)
+    - imagePrompt (Detailed prompt for generation)
+    - script (Voiceover text)
   `;
 
   try {
@@ -202,6 +194,7 @@ export const planScenes = async (beats: NarrativeBeat[], aspectRatio: AspectRati
       model: TEXT_MODEL,
       contents: prompt,
       config: {
+        tools: [{ googleSearch: {} }], // Enable search to allow finding real links during planning
         responseMimeType: "application/json",
         responseSchema: {
           type: Type.ARRAY,
@@ -228,11 +221,17 @@ export const planScenes = async (beats: NarrativeBeat[], aspectRatio: AspectRati
 
     if (response.text) {
       const scenes = JSON.parse(response.text) as Scene[];
+      
+      // Post-processing to inject grounding if the model used search but didn't put it in JSON (common quirk)
+      const groundingChunks = (response.candidates?.[0]?.groundingMetadata?.groundingChunks || []) as GroundingChunk[];
+      
       return scenes.map((s, i) => ({ 
         ...s, 
         id: s.id || `scene_${i}`, 
         isLoading: true,
-        visualEffect: s.visualEffect || 'NONE' 
+        visualEffect: s.visualEffect || 'NONE',
+        // Distribute grounding chunks if references are empty, just to ensure we have data
+        referenceLinks: s.referenceLinks?.length ? s.referenceLinks : groundingChunks.slice(i, i+2).map(g => g.web?.uri || '').filter(Boolean)
       }));
     }
     throw new Error("No response text from scene planning");

@@ -1,6 +1,6 @@
 import React from 'react';
 import { Scene, PipelineStep } from '../types';
-import { Clock, Film, Sparkles, Move, Search, Cpu, Edit2, PlayCircle, Mic, MonitorPlay, ExternalLink, Link2, FileSearch, Image as ImageIcon, Video as VideoIcon } from 'lucide-react';
+import { Clock, Film, Sparkles, Move, Search, Cpu, Edit2, PlayCircle, Mic, MonitorPlay, ExternalLink, Link2, FileSearch, Image as ImageIcon, Video as VideoIcon, AlertTriangle, Trophy } from 'lucide-react';
 
 interface SceneCardProps {
   scene: Scene;
@@ -15,6 +15,15 @@ export const SceneCard: React.FC<SceneCardProps> = ({ scene, index, status, onCl
   const hasGrounding = scene.groundingChunks && scene.groundingChunks.length > 0;
   const hasUserLinks = scene.referenceLinks && scene.referenceLinks.length > 0;
   const isReviewMode = status === PipelineStep.REVIEW;
+
+  // Calculate Research Score
+  const imageCount = scene.referenceLinks?.filter(l => l.match(/\.(jpeg|jpg|gif|png|webp)$/i))?.length || 0;
+  const videoCount = scene.referenceLinks?.filter(l => l.match(/\.(mp4|mov|webm)$/i))?.length || 0;
+  const webCount = scene.groundingChunks?.length || 0;
+  
+  // Basic heuristic: Web results count as 1 point (potential images), direct Images 1, Videos 3.
+  const researchScore = (imageCount * 1) + (videoCount * 3) + (webCount * 1);
+  const isLowIntel = researchScore < 2;
 
   return (
     <div 
@@ -98,6 +107,15 @@ export const SceneCard: React.FC<SceneCardProps> = ({ scene, index, status, onCl
                         <span className="text-xs font-mono">{scene.duration}s</span>
                      </div>
                   </div>
+                  
+                  {/* Research Score Badge */}
+                  <div className={`flex items-center gap-2 px-3 py-1 rounded-full border ${isLowIntel ? 'bg-red-500/10 border-red-500/20 text-red-400' : 'bg-green-500/10 border-green-500/20 text-green-400'}`}>
+                      {isLowIntel ? <AlertTriangle size={12} /> : <Trophy size={12} />}
+                      <span className="text-[10px] font-bold uppercase tracking-wide">
+                          Score: {researchScore}
+                      </span>
+                  </div>
+
                   {isReviewMode && (
                       <button onClick={onEditScript} className="p-2 hover:bg-white/5 rounded-full text-zinc-500 hover:text-white transition-colors">
                           <Edit2 size={16} />
@@ -124,8 +142,9 @@ export const SceneCard: React.FC<SceneCardProps> = ({ scene, index, status, onCl
                   </div>
                   
                   {(!hasGrounding && !hasUserLinks) ? (
-                      <div className="p-3 rounded-lg border border-dashed border-white/5 text-center">
-                          <p className="text-xs text-zinc-600">No specific external assets required.</p>
+                      <div className="p-3 rounded-lg border border-dashed border-red-500/20 bg-red-500/5 text-center flex items-center justify-center gap-2">
+                          <div className="w-2 h-2 bg-red-500 rounded-full animate-pulse" />
+                          <p className="text-xs text-red-400 font-medium">Pending Asset Acquisition...</p>
                       </div>
                   ) : (
                       <div className="grid grid-cols-2 gap-3">

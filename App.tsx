@@ -1,4 +1,4 @@
-import React, { useState, useReducer, useCallback, useEffect } from 'react';
+import React, { useState, useReducer, useCallback, useEffect, useRef } from 'react';
 import { 
   ProjectState, 
   PipelineStep, 
@@ -34,7 +34,8 @@ import {
   Monitor,
   ChevronDown,
   Sparkles,
-  PlayCircle
+  PlayCircle,
+  Activity
 } from 'lucide-react';
 
 const initialState: ProjectState = {
@@ -58,7 +59,6 @@ const VOICES = [
   { id: 'Zephyr', label: 'Zephyr (Female, Calm)' },
 ];
 
-// Updated Hooks with Assets provided by user
 const HOOKS: {id: HookStyle, label: string, icon: React.ReactNode, asset: string, type: 'video' | 'image'}[] = [
     { id: 'AI_SELECTED', label: 'AI-Selected', icon: <Zap size={14} />, asset: 'ai selected.jpg', type: 'image' },
     { id: 'FAST_CUT', label: 'Fast Cut', icon: <Scissors size={14} />, asset: 'Fast Cut.mp4', type: 'video' },
@@ -66,7 +66,6 @@ const HOOKS: {id: HookStyle, label: string, icon: React.ReactNode, asset: string
     { id: 'TEXT_MATCH', label: 'Text Match', icon: <Type size={14} />, asset: 'Text Match.mp4', type: 'video' },
 ];
 
-// Strategy Options
 const AUDIENCE_OPTIONS = [
   "General Public", "Tech Enthusiasts", "Investors", "Students", "Corporate Executives", "Gamers", "Parents", "Researchers"
 ];
@@ -152,9 +151,32 @@ export default function App() {
   
   const [editingSceneId, setEditingSceneId] = useState<string | null>(null);
   const [editScriptText, setEditScriptText] = useState('');
+  const [activeSceneIndex, setActiveSceneIndex] = useState(0);
   
-  // Strategy Form State
   const [strategyForm, setStrategyForm] = useState<VideoStrategy | null>(null);
+
+  // Scroll spy to update active narrative beat
+  useEffect(() => {
+    if (state.scenes.length === 0) return;
+
+    const observer = new IntersectionObserver((entries) => {
+      entries.forEach(entry => {
+        if (entry.isIntersecting) {
+          const index = Number(entry.target.getAttribute('data-index'));
+          if (!isNaN(index)) {
+            setActiveSceneIndex(index);
+          }
+        }
+      });
+    }, { threshold: 0.5 });
+
+    state.scenes.forEach((_, i) => {
+      const el = document.getElementById(`scene-card-${i}`);
+      if (el) observer.observe(el);
+    });
+
+    return () => observer.disconnect();
+  }, [state.scenes]);
 
   const checkApiKey = async () => {
     if (window.aistudio?.hasSelectedApiKey) {
@@ -230,7 +252,6 @@ export default function App() {
       const scenes = await GeminiService.planScenes(beats, state.aspectRatio, state.userLinks, strategyForm);
       dispatch({ type: 'SET_SCENES', payload: scenes });
       
-      // STOP HERE for Review
       dispatch({ type: 'SET_STATUS', payload: PipelineStep.REVIEW });
       dispatch({ type: 'ADD_LOG', payload: 'Waiting for user approval...' });
 
@@ -247,7 +268,6 @@ export default function App() {
      const scenes = state.scenes;
      
      scenes.forEach(async (scene) => {
-        // 1. Image (Nano Banana / Gemini Pro Image)
         if (scene.imagePrompt && !scene.imageUrl) {
             try {
               const { imageUrl, groundingChunks } = await GeminiService.generateSceneImage(scene.imagePrompt, state.aspectRatio);
@@ -261,7 +281,6 @@ export default function App() {
             }
         }
         
-        // 2. Video (Veo)
         if (scene.type === 'split_screen' || scene.visualEffect === 'ZOOM_BLUR') {
             try {
                 dispatch({ type: 'ADD_LOG', payload: `Starting Veo generation for ${scene.id}...` });
@@ -273,7 +292,6 @@ export default function App() {
             }
         }
 
-        // 3. Audio
         if (scene.script) {
             try {
               const url = await GeminiService.generateSpeech(scene.script, state.voice);
@@ -284,7 +302,6 @@ export default function App() {
         }
       });
 
-      // Wait for all scenes to roughly complete (in a real app we'd track promises)
       setTimeout(() => {
           dispatch({ type: 'SET_STATUS', payload: PipelineStep.COMPLETE });
       }, 15000);
@@ -298,20 +315,7 @@ export default function App() {
 
   const activeResearchScene = state.scenes.find(s => s.id === researchSceneId);
 
-  // Helper for Strategy Dropdowns
-  const StrategyField = ({ 
-    label, 
-    icon, 
-    value, 
-    options, 
-    onChange 
-  }: { 
-    label: string, 
-    icon: React.ReactNode, 
-    value: string, 
-    options: string[], 
-    onChange: (val: string) => void 
-  }) => {
+  const StrategyField = ({ label, icon, value, options, onChange }: any) => {
     return (
       <div className="space-y-2">
         <label className="text-xs font-bold text-zinc-500 uppercase flex items-center gap-2">
@@ -336,7 +340,7 @@ export default function App() {
              value=""
            >
              <option value="" disabled>Select an option...</option>
-             {options.map(opt => (
+             {options.map((opt:string) => (
                <option key={opt} value={opt}>{opt}</option>
              ))}
            </select>
@@ -375,7 +379,6 @@ export default function App() {
       <main className="flex-1 flex flex-col pt-16">
         {state.status === PipelineStep.IDLE ? (
           <div className="flex-1 flex flex-col items-center justify-center px-4 py-20 relative overflow-hidden">
-            {/* Background Ambience */}
             <div className="absolute top-0 left-1/2 -translate-x-1/2 w-[1000px] h-[500px] bg-blue-600/10 rounded-full blur-[120px] pointer-events-none" />
             
             <div className="w-full max-w-3xl relative z-10 space-y-10">
@@ -404,9 +407,7 @@ export default function App() {
                         />
                      </div>
                      
-                     {/* Asset/Config Bar */}
                      <div className="bg-black/40 rounded-xl p-3 flex flex-wrap items-center gap-4">
-                        {/* Hooks */}
                         <div className="flex items-center gap-2 overflow-x-auto pb-2 md:pb-0 hide-scrollbar">
                            <span className="text-xs font-bold text-zinc-600 uppercase tracking-wider mr-2">Style</span>
                            {HOOKS.map(hook => (
@@ -414,15 +415,23 @@ export default function App() {
                                   key={hook.id}
                                   type="button"
                                   onClick={() => setSelectedHook(hook.id)}
-                                  className={`relative group flex-shrink-0 w-24 h-16 rounded-lg overflow-hidden border transition-all ${selectedHook === hook.id ? 'border-blue-500 ring-2 ring-blue-500/20' : 'border-white/10 opacity-60 hover:opacity-100'}`}
+                                  className={`relative group flex-shrink-0 w-32 h-20 rounded-lg overflow-hidden border transition-all ${selectedHook === hook.id ? 'border-blue-500 ring-2 ring-blue-500/20' : 'border-white/10 opacity-60 hover:opacity-100'}`}
                                >
                                   {hook.type === 'video' ? (
-                                      <video src={hook.asset} className="w-full h-full object-cover" loop muted playsInline onMouseOver={e => e.currentTarget.play()} onMouseOut={e => {e.currentTarget.pause(); e.currentTarget.currentTime = 0;}} />
+                                      <video 
+                                        src={hook.asset} 
+                                        className="w-full h-full object-cover" 
+                                        loop 
+                                        muted 
+                                        playsInline 
+                                        onMouseOver={e => e.currentTarget.play().catch(() => {})} 
+                                        onMouseOut={e => {e.currentTarget.pause(); e.currentTarget.currentTime = 0;}} 
+                                      />
                                   ) : (
                                       <img src={hook.asset} className="w-full h-full object-cover" alt={hook.label} />
                                   )}
-                                  <div className="absolute inset-0 bg-black/40 flex items-center justify-center">
-                                      <span className="text-[10px] font-bold text-white uppercase text-center px-1">{hook.label}</span>
+                                  <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-transparent flex items-end justify-center pb-1">
+                                      <span className="text-[10px] font-bold text-white uppercase text-center px-1 shadow-sm">{hook.label}</span>
                                   </div>
                                   {selectedHook === hook.id && (
                                       <div className="absolute top-1 right-1 w-2 h-2 bg-blue-500 rounded-full shadow-[0_0_5px_rgba(59,130,246,1)]" />
@@ -433,7 +442,6 @@ export default function App() {
 
                         <div className="w-[1px] h-10 bg-white/10 hidden md:block" />
 
-                        {/* Aspect Ratio */}
                         <div className="flex gap-1">
                           <button
                             type="button"
@@ -465,24 +473,25 @@ export default function App() {
             </div>
           </div>
         ) : (
-          <div className="flex-1 flex flex-col max-w-6xl mx-auto w-full px-6 py-8">
-            <PipelineSteps currentStep={state.status} />
+          <div className="flex-1 flex flex-col w-full px-6 py-8">
+            <div className="max-w-6xl mx-auto w-full">
+                <PipelineSteps currentStep={state.status} />
+                
+                {state.status === PipelineStep.ERROR && (
+                    <div className="mx-auto max-w-xl bg-red-950/50 border border-red-500/50 text-red-200 p-6 rounded-2xl flex items-center gap-4 backdrop-blur-md mb-8">
+                        <AlertCircle size={24} className="text-red-500" />
+                        <div>
+                            <h3 className="font-bold">Generation Paused</h3>
+                            <p className="text-sm opacity-80">{state.error}</p>
+                        </div>
+                        <button 
+                        onClick={() => dispatch({ type: 'RESET' })}
+                        className="ml-auto px-4 py-2 bg-red-500/20 hover:bg-red-500/30 text-red-300 rounded-lg text-sm transition-colors"
+                        >Try Again</button>
+                    </div>
+                )}
+            </div>
 
-            {state.status === PipelineStep.ERROR && (
-              <div className="mx-auto max-w-xl bg-red-950/50 border border-red-500/50 text-red-200 p-6 rounded-2xl flex items-center gap-4 backdrop-blur-md mb-8">
-                 <AlertCircle size={24} className="text-red-500" />
-                 <div>
-                    <h3 className="font-bold">Generation Paused</h3>
-                    <p className="text-sm opacity-80">{state.error}</p>
-                 </div>
-                 <button 
-                  onClick={() => dispatch({ type: 'RESET' })}
-                  className="ml-auto px-4 py-2 bg-red-500/20 hover:bg-red-500/30 text-red-300 rounded-lg text-sm transition-colors"
-                 >Try Again</button>
-              </div>
-            )}
-
-            {/* Strategy Selection Phase */}
             {state.status === PipelineStep.STRATEGY && strategyForm && (
                 <div className="max-w-4xl mx-auto w-full animate-in fade-in slide-in-from-bottom-8 duration-500">
                     <div className="bg-zinc-900/80 backdrop-blur-xl border border-zinc-800 rounded-3xl p-8 shadow-2xl">
@@ -507,21 +516,21 @@ export default function App() {
                                 icon={<Target size={14} />}
                                 value={strategyForm.targetAudience}
                                 options={AUDIENCE_OPTIONS}
-                                onChange={(val) => setStrategyForm({...strategyForm, targetAudience: val})}
+                                onChange={(val: string) => setStrategyForm({...strategyForm, targetAudience: val})}
                             />
                             <StrategyField 
                                 label="Tone & Style"
                                 icon={<PenTool size={14} />}
                                 value={strategyForm.toneStyle}
                                 options={TONE_OPTIONS}
-                                onChange={(val) => setStrategyForm({...strategyForm, toneStyle: val})}
+                                onChange={(val: string) => setStrategyForm({...strategyForm, toneStyle: val})}
                             />
                             <StrategyField 
                                 label="Key Objective"
                                 icon={<Lightbulb size={14} />}
                                 value={strategyForm.keyObjective}
                                 options={OBJECTIVE_OPTIONS}
-                                onChange={(val) => setStrategyForm({...strategyForm, keyObjective: val})}
+                                onChange={(val: string) => setStrategyForm({...strategyForm, keyObjective: val})}
                             />
                         </div>
 
@@ -537,72 +546,94 @@ export default function App() {
                 </div>
             )}
 
-            {/* Review Step Header */}
-            {state.status === PipelineStep.REVIEW && (
-                <div className="mb-12 sticky top-20 z-30 animate-in fade-in slide-in-from-top-4">
-                    <div className="bg-black/80 backdrop-blur-xl border border-zinc-800 rounded-full p-4 pl-8 flex items-center justify-between shadow-2xl">
-                        <div>
-                            <h2 className="text-lg font-bold text-white flex items-center gap-2">
-                                <CheckCircle2 className="text-blue-500" size={20} />
-                                Scene Plan Ready
-                            </h2>
-                            <p className="text-zinc-500 text-xs">{state.scenes.length} Scenes Generated</p>
-                        </div>
-                        <button 
-                            onClick={approveAndGenerate}
-                            className="px-6 py-3 bg-blue-600 hover:bg-blue-500 text-white font-bold rounded-full shadow-lg shadow-blue-900/30 flex items-center gap-2 transition-all hover:scale-105"
-                        >
-                            Start Production <ArrowRight size={18} />
-                        </button>
-                    </div>
-                </div>
-            )}
-
-            {/* Cinematic Scene Feed */}
+            {/* Layout for Review/Production Phase with Sticky Sidebar */}
             {(state.status === PipelineStep.REVIEW || state.status === PipelineStep.ASSET_GENERATION || state.status === PipelineStep.COMPLETE) && (
-                <div className="w-full max-w-5xl mx-auto pb-40 space-y-24">
+                <div className="relative flex max-w-7xl mx-auto w-full gap-12">
                     
-                    {/* Header Controls for Feed */}
-                    <div className="flex justify-between items-end border-b border-zinc-800 pb-4 mb-10">
-                         <div>
-                            <h1 className="text-4xl font-bold text-white mb-2">Storyboard</h1>
-                            <p className="text-zinc-400">Review usage rights, scripts, and visual direction.</p>
-                         </div>
-                         {state.status === PipelineStep.COMPLETE && (
-                            <button 
-                                onClick={() => setIsPreviewOpen(true)}
-                                className="flex items-center gap-2 px-6 py-3 bg-white text-black rounded-full hover:bg-zinc-200 transition-all font-bold shadow-[0_0_20px_rgba(255,255,255,0.15)]"
-                            >
-                                <PlayCircle size={20} />
-                                Watch Full Preview
-                            </button>
-                        )}
+                    {/* Sticky Narrative Sidebar */}
+                    <div className="hidden xl:block w-72 flex-shrink-0">
+                        <div className="sticky top-24 max-h-[calc(100vh-8rem)] overflow-y-auto pr-4 custom-scrollbar">
+                            <h3 className="text-sm font-bold text-zinc-500 uppercase tracking-widest mb-6 sticky top-0 bg-black py-2 z-10 flex items-center gap-2">
+                                <Activity size={14} /> Narrative Arc
+                            </h3>
+                            <div className="space-y-1 relative border-l border-zinc-800 ml-3">
+                                {state.narrativeBeats.map((beat, i) => {
+                                    const isActive = activeSceneIndex === i || (i === state.narrativeBeats.length -1 && activeSceneIndex >= i);
+                                    return (
+                                        <div 
+                                            key={i} 
+                                            className={`relative pl-6 py-2 transition-all duration-500 ${isActive ? 'opacity-100' : 'opacity-40'}`}
+                                        >
+                                            <div className={`absolute left-[-5px] top-3.5 w-2.5 h-2.5 rounded-full border-2 transition-all duration-500 z-10 ${isActive ? 'bg-blue-500 border-blue-400 scale-125 shadow-[0_0_10px_rgba(59,130,246,0.8)]' : 'bg-zinc-900 border-zinc-700'}`} />
+                                            {isActive && <div className="absolute left-[-5px] top-3.5 w-2.5 h-2.5 rounded-full bg-blue-500 animate-ping" />}
+                                            
+                                            <h4 className={`text-sm font-bold transition-colors ${isActive ? 'text-white' : 'text-zinc-400'}`}>
+                                                {beat.beat}
+                                            </h4>
+                                            
+                                            <div className={`overflow-hidden transition-all duration-500 ${isActive ? 'max-h-40 mt-2' : 'max-h-0'}`}>
+                                                <p className="text-xs text-zinc-400 leading-relaxed border-l-2 border-zinc-800 pl-3">
+                                                    {beat.description}
+                                                </p>
+                                            </div>
+                                        </div>
+                                    );
+                                })}
+                            </div>
+                        </div>
                     </div>
 
-                    {state.scenes.map((scene, index) => (
-                        <div key={scene.id} className="relative">
-                             {/* Connector Line */}
-                             {index < state.scenes.length - 1 && (
-                                <div className="absolute left-8 top-full h-24 w-[2px] bg-gradient-to-b from-zinc-800 to-transparent z-0" />
-                             )}
-                             
-                             <SceneCard 
-                                scene={scene} 
-                                index={index}
-                                status={state.status}
-                                onClick={() => {}}
-                                onViewResearch={(e) => {
-                                    e.stopPropagation();
-                                    setResearchSceneId(scene.id);
-                                }}
-                                onEditScript={(e) => {
-                                    e.stopPropagation();
-                                    setEditingSceneId(scene.id);
-                                    setEditScriptText(scene.script);
-                                }}
-                            />
+                    {/* Main Feed */}
+                    <div className="flex-1 pb-40 space-y-24 min-w-0">
+                        <div className="flex justify-between items-end border-b border-zinc-800 pb-4 mb-10">
+                            <div>
+                                <h1 className="text-4xl font-bold text-white mb-2">Storyboard</h1>
+                                <p className="text-zinc-400">Review assets, scripts, and visual direction.</p>
+                            </div>
+                            {state.status === PipelineStep.COMPLETE && (
+                                <button 
+                                    onClick={() => setIsPreviewOpen(true)}
+                                    className="flex items-center gap-2 px-6 py-3 bg-white text-black rounded-full hover:bg-zinc-200 transition-all font-bold shadow-[0_0_20px_rgba(255,255,255,0.15)]"
+                                >
+                                    <PlayCircle size={20} />
+                                    Watch Full Preview
+                                </button>
+                            )}
+                            {state.status === PipelineStep.REVIEW && (
+                                <button 
+                                    onClick={approveAndGenerate}
+                                    className="px-6 py-3 bg-blue-600 hover:bg-blue-500 text-white font-bold rounded-full shadow-lg shadow-blue-900/30 flex items-center gap-2 transition-all hover:scale-105"
+                                >
+                                    Start Production <ArrowRight size={18} />
+                                </button>
+                            )}
                         </div>
-                    ))}
+
+                        {state.scenes.map((scene, index) => (
+                            <div key={scene.id} id={`scene-card-${index}`} data-index={index} className="relative">
+                                {/* Connector Line */}
+                                {index < state.scenes.length - 1 && (
+                                    <div className="absolute left-8 top-full h-24 w-[2px] bg-gradient-to-b from-zinc-800 to-transparent z-0" />
+                                )}
+                                
+                                <SceneCard 
+                                    scene={scene} 
+                                    index={index}
+                                    status={state.status}
+                                    onClick={() => {}}
+                                    onViewResearch={(e) => {
+                                        e.stopPropagation();
+                                        setResearchSceneId(scene.id);
+                                    }}
+                                    onEditScript={(e) => {
+                                        e.stopPropagation();
+                                        setEditingSceneId(scene.id);
+                                        setEditScriptText(scene.script);
+                                    }}
+                                />
+                            </div>
+                        ))}
+                    </div>
                 </div>
             )}
           </div>
