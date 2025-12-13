@@ -1,0 +1,5 @@
+{
+  "name": "Agentic Video Creator",
+  "description": "A multi-agent system for generating high-quality infographic and explainer video scenes using Gemini models.",
+  "requestFramePermissions": []
+}

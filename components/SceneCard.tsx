@@ -1,0 +1,185 @@
+import React from 'react';
+import { Scene, PipelineStep } from '../types';
+import { Clock, Film, Sparkles, Move, Search, Cpu, Edit2, PlayCircle, Mic, MonitorPlay, ExternalLink, Link2, FileSearch, Image as ImageIcon, Video as VideoIcon } from 'lucide-react';
+
+interface SceneCardProps {
+  scene: Scene;
+  index: number;
+  status?: PipelineStep;
+  onClick: () => void;
+  onViewResearch: (e: React.MouseEvent) => void;
+  onEditScript: (e: React.MouseEvent) => void;
+}
+
+export const SceneCard: React.FC<SceneCardProps> = ({ scene, index, status, onClick, onViewResearch, onEditScript }) => {
+  const hasGrounding = scene.groundingChunks && scene.groundingChunks.length > 0;
+  const hasUserLinks = scene.referenceLinks && scene.referenceLinks.length > 0;
+  const isReviewMode = status === PipelineStep.REVIEW;
+
+  return (
+    <div 
+      onClick={onClick}
+      className={`group relative w-full bg-zinc-900/40 backdrop-blur-sm border border-zinc-800 rounded-3xl overflow-hidden transition-all duration-500 hover:border-zinc-700
+        ${isReviewMode ? 'hover:shadow-[0_0_40px_rgba(0,0,0,0.5)]' : ''}
+      `}
+    >
+      <div className="flex flex-col lg:flex-row h-auto lg:h-[500px]">
+          
+          {/* LEFT: VISUAL CANVAS */}
+          <div className="lg:w-7/12 relative h-[300px] lg:h-full bg-black border-b lg:border-b-0 lg:border-r border-zinc-800 group-hover:border-zinc-700 transition-colors">
+              
+              {/* Status Overlay */}
+              {scene.isLoading ? (
+                <div className="absolute inset-0 flex items-center justify-center bg-zinc-950/80 backdrop-blur-sm z-20">
+                    <div className="flex flex-col items-center gap-4">
+                        <div className="w-10 h-10 border-2 border-blue-500 border-t-transparent rounded-full animate-spin" />
+                        <p className="text-xs text-blue-400 font-mono animate-pulse tracking-widest">RENDERING ASSET...</p>
+                    </div>
+                </div>
+              ) : null}
+
+              {/* Main Visual */}
+              {scene.imageUrl ? (
+                  <div className="w-full h-full relative group/image">
+                     <img 
+                       src={scene.imageUrl} 
+                       alt={scene.imagePrompt} 
+                       className="w-full h-full object-cover transition-transform duration-700 group-hover:scale-105"
+                     />
+                     {scene.videoUrl && (
+                        <div className="absolute inset-0 flex items-center justify-center bg-black/20 backdrop-blur-[1px]">
+                           <div className="w-16 h-16 rounded-full bg-white/10 backdrop-blur-md flex items-center justify-center border border-white/20 shadow-xl group-hover/image:scale-110 transition-transform">
+                                <PlayCircle size={32} className="text-white fill-white/20" />
+                           </div>
+                        </div>
+                     )}
+                     <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-transparent opacity-60" />
+                     
+                     {/* Visual Config Badges */}
+                     <div className="absolute top-4 left-4 flex gap-2">
+                        <span className="px-3 py-1 rounded-full bg-black/60 backdrop-blur border border-white/10 text-[10px] font-bold text-zinc-300 uppercase tracking-wider">
+                            {scene.type.replace('_', ' ')}
+                        </span>
+                        {scene.visualEffect !== 'NONE' && (
+                            <span className="px-3 py-1 rounded-full bg-purple-900/60 backdrop-blur border border-purple-500/30 text-[10px] font-bold text-purple-300 uppercase tracking-wider flex items-center gap-1">
+                                <Cpu size={10} /> {scene.visualEffect}
+                            </span>
+                        )}
+                     </div>
+                  </div>
+              ) : (
+                  <div className="w-full h-full flex flex-col items-center justify-center text-zinc-700 gap-4 bg-zinc-950">
+                      <Film size={48} className="opacity-20" />
+                      <p className="text-xs font-mono uppercase tracking-widest opacity-40">Visual Placeholder</p>
+                  </div>
+              )}
+
+              {/* Motion Intent Overlay */}
+              <div className="absolute bottom-0 left-0 right-0 p-6">
+                 <div className="flex items-center gap-2 mb-2 text-zinc-400 text-xs font-bold uppercase tracking-wider">
+                    <Move size={12} className="text-blue-500" /> Motion Plan
+                 </div>
+                 <p className="text-sm text-zinc-200 leading-relaxed max-w-lg">
+                    {scene.motionIntent.join('. ')}
+                 </p>
+              </div>
+          </div>
+
+          {/* RIGHT: NARRATIVE & RESEARCH DOCK */}
+          <div className="lg:w-5/12 flex flex-col bg-zinc-900/50">
+              
+              {/* Scene Number & Timing */}
+              <div className="px-6 py-6 border-b border-white/5 flex items-center justify-between">
+                  <div className="flex items-center gap-3">
+                     <span className="text-4xl font-black text-white/10">{String(index + 1).padStart(2, '0')}</span>
+                     <div className="h-8 w-[1px] bg-white/10" />
+                     <div className="flex items-center gap-2 text-zinc-500">
+                        <Clock size={14} />
+                        <span className="text-xs font-mono">{scene.duration}s</span>
+                     </div>
+                  </div>
+                  {isReviewMode && (
+                      <button onClick={onEditScript} className="p-2 hover:bg-white/5 rounded-full text-zinc-500 hover:text-white transition-colors">
+                          <Edit2 size={16} />
+                      </button>
+                  )}
+              </div>
+
+              {/* Script Section */}
+              <div className="flex-1 p-8 overflow-y-auto">
+                  <label className="text-xs font-bold text-zinc-600 uppercase tracking-widest mb-4 block flex items-center gap-2">
+                     <Mic size={12} /> Voiceover
+                  </label>
+                  <p className="text-xl md:text-2xl font-serif text-zinc-200 leading-relaxed">
+                     "{scene.script}"
+                  </p>
+              </div>
+
+              {/* Research Assets Dock */}
+              <div className="p-6 bg-black/20 border-t border-white/5">
+                  <div className="flex items-center justify-between mb-4">
+                     <label className="text-[10px] font-bold text-blue-400 uppercase tracking-widest flex items-center gap-2">
+                        <Search size={12} /> Reference Intelligence
+                     </label>
+                  </div>
+                  
+                  {(!hasGrounding && !hasUserLinks) ? (
+                      <div className="p-3 rounded-lg border border-dashed border-white/5 text-center">
+                          <p className="text-xs text-zinc-600">No specific external assets required.</p>
+                      </div>
+                  ) : (
+                      <div className="grid grid-cols-2 gap-3">
+                          {/* User Links */}
+                          {scene.referenceLinks?.map((link, i) => (
+                              <a 
+                                  key={`user-${i}`}
+                                  href={link}
+                                  target="_blank"
+                                  rel="noreferrer"
+                                  className="flex items-center gap-3 p-3 rounded-xl bg-green-900/10 border border-green-500/20 hover:bg-green-900/20 hover:border-green-500/40 transition-all group/link"
+                              >
+                                  <div className="w-8 h-8 rounded-lg bg-green-500/10 flex items-center justify-center text-green-400">
+                                      {link.match(/\.(jpeg|jpg|gif|png)$/) ? <ImageIcon size={14} /> : <VideoIcon size={14} />}
+                                  </div>
+                                  <div className="overflow-hidden">
+                                      <p className="text-[10px] text-green-400 font-bold uppercase tracking-wider mb-0.5">User Asset</p>
+                                      <p className="text-xs text-zinc-400 truncate group-hover/link:text-zinc-200">{new URL(link).hostname}</p>
+                                  </div>
+                              </a>
+                          ))}
+
+                          {/* Grounding Links */}
+                          {scene.groundingChunks?.slice(0, 4).map((chunk, i) => (
+                              <a 
+                                  key={`grounding-${i}`}
+                                  href={chunk.web?.uri}
+                                  target="_blank"
+                                  rel="noreferrer"
+                                  className="flex items-center gap-3 p-3 rounded-xl bg-blue-900/10 border border-blue-500/20 hover:bg-blue-900/20 hover:border-blue-500/40 transition-all group/link"
+                              >
+                                  <div className="w-8 h-8 rounded-lg bg-blue-500/10 flex items-center justify-center text-blue-400">
+                                      <ExternalLink size={14} />
+                                  </div>
+                                  <div className="overflow-hidden">
+                                      <p className="text-[10px] text-blue-400 font-bold uppercase tracking-wider mb-0.5">Research</p>
+                                      <p className="text-xs text-zinc-400 truncate group-hover/link:text-zinc-200">{chunk.web?.title || 'Web Source'}</p>
+                                  </div>
+                              </a>
+                          ))}
+                      </div>
+                  )}
+                  
+                  {/* Visual Research Plan Text */}
+                  {scene.visualResearchPlan && (
+                      <div className="mt-4 pt-4 border-t border-white/5">
+                          <p className="text-[10px] text-zinc-500 font-mono leading-relaxed">
+                              <span className="text-zinc-400 font-bold">REQ:</span> {scene.visualResearchPlan}
+                          </p>
+                      </div>
+                  )}
+              </div>
+          </div>
+      </div>
+    </div>
+  );
+};
