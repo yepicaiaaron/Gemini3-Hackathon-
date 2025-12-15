@@ -10,7 +10,7 @@ import {
   HookStyle,
   AspectRatio,
   AssetStatus,
-  FetchedAsset
+  AssetRecord
 } from './types';
 import * as GeminiService from './services/gemini';
 import { PipelineSteps } from './components/PipelineSteps';
@@ -150,14 +150,14 @@ function reducer(state: ProjectState, action: AgentAction): ProjectState {
         ...state,
         scenes: state.scenes.map(s => s.id === action.payload.id ? { ...s, isResearching: action.payload.isResearching } : s)
       };
-    case 'ADD_SCENE_ASSETS':
+    case 'INGEST_ASSETS': // Use the new action type
       return {
         ...state,
-        scenes: state.scenes.map(s => s.id === action.payload.id ? { 
+        scenes: state.scenes.map(s => s.id === action.payload.sceneId ? { 
             ...s, 
-            fetchedAssets: [...s.fetchedAssets, ...action.payload.assets] 
+            assets: [...(s.assets || []), ...action.payload.assets] 
         } : s),
-        logs: [...state.logs, `Research complete for ${action.payload.id}. Found ${action.payload.assets.length} assets.`]
+        logs: [...state.logs, `Ingested ${action.payload.assets.length} assets for ${action.payload.sceneId}.`]
       };
     case 'UPDATE_SCENE_IMAGE':
       return {
@@ -242,7 +242,6 @@ export default function App() {
   
   const [strategyForm, setStrategyForm] = useState<VideoStrategy | null>(null);
 
-  // Scroll spy to update active narrative beat
   useEffect(() => {
     if (state.scenes.length === 0) return;
 
@@ -279,7 +278,6 @@ export default function App() {
     return text.match(urlRegex) || [];
   };
 
-  // Phase 1: Analysis & Strategy
   const startAnalysis = useCallback(async (topic: string) => {
     await checkApiKey();
     const userLinks = extractUrls(topic);
@@ -304,7 +302,6 @@ export default function App() {
     }
   }, [selectedVoice, selectedHook, selectedAspectRatio]);
 
-  // Phase 1.5: Deep Research (Concurrent)
   const runDeepResearch = async (scenes: Scene[]) => {
       dispatch({ type: 'SET_STATUS', payload: PipelineStep.RESEARCHING });
       dispatch({ type: 'ADD_LOG', payload: 'PHASE 1.5: Starting High-Concurrency Deep Research...' });
@@ -314,11 +311,11 @@ export default function App() {
       const processResearch = async (scene: Scene) => {
           dispatch({ type: 'UPDATE_SCENE_RESEARCH_STATUS', payload: { id: scene.id, isResearching: true } });
           const assets = await GeminiService.researchScene(scene);
-          dispatch({ type: 'ADD_SCENE_ASSETS', payload: { id: scene.id, assets } });
+          // Use INGEST_ASSETS for the new database records
+          dispatch({ type: 'INGEST_ASSETS', payload: { sceneId: scene.id, assets } });
           dispatch({ type: 'UPDATE_SCENE_RESEARCH_STATUS', payload: { id: scene.id, isResearching: false } });
       };
 
-      // Simple Batching Logic for concurrency
       const queue = [...scenes];
       const workers = Array.from({ length: RESEARCH_CONCURRENCY }).map(async () => {
           while (queue.length > 0) {
@@ -333,7 +330,6 @@ export default function App() {
       dispatch({ type: 'ADD_LOG', payload: 'Research phase complete. Ready for review.' });
   };
 
-  // Phase 2: Planning
   const confirmStrategyAndPlan = useCallback(async () => {
     if (!strategyForm) return;
     
@@ -345,20 +341,17 @@ export default function App() {
       dispatch({ type: 'SET_NARRATIVE', payload: beats });
       
       dispatch({ type: 'SET_STATUS', payload: PipelineStep.SCENE_PLANNING });
-      dispatch({ type: 'ADD_LOG', payload: 'Deep Research Agent: Planning visual scenes (Targeting 10+)...' });
+      dispatch({ type: 'ADD_LOG', payload: 'Deep Research Agent: Planning visual scenes...' });
 
       const scenes = await GeminiService.planScenes(beats, state.aspectRatio, state.userLinks, strategyForm, state.hookStyle);
       dispatch({ type: 'SET_SCENES', payload: scenes });
       
-      // TRIGGER PHASE 1.5
       await runDeepResearch(scenes);
 
     } catch (error: any) {
       dispatch({ type: 'SET_ERROR', payload: error.message || 'Unknown error' });
     }
   }, [strategyForm, state.topic, state.hookStyle, state.aspectRatio, state.userLinks]);
-
-  // --- ASSET GENERATION PIPELINE (With Retry) ---
 
   const MAX_RETRIES = 5;
 
@@ -376,9 +369,7 @@ export default function App() {
             return true;
         } catch (e) {
             attempts++;
-            if (attempts < MAX_RETRIES) {
-                 await new Promise(r => setTimeout(r, 2000));
-            }
+            if (attempts < MAX_RETRIES) await new Promise(r => setTimeout(r, 2000));
         }
     }
     dispatch({ type: 'UPDATE_ASSET_STATUS', payload: { id: sceneId, type: 'audio', status: 'error' } });
@@ -399,9 +390,7 @@ export default function App() {
             return imageUrl;
         } catch (e) {
             attempts++;
-            if (attempts < MAX_RETRIES) {
-                 await new Promise(r => setTimeout(r, 3000));
-            }
+            if (attempts < MAX_RETRIES) await new Promise(r => setTimeout(r, 3000));
         }
     }
 
@@ -437,7 +426,6 @@ export default function App() {
   const processScene = async (scene: Scene) => {
       const audioPromise = generateAudioForScene(scene.id, scene.script);
       const imagePromise = generateImageForScene(scene.id, scene.imagePrompt || scene.script);
-
       const [audioSuccess, generatedImageUrl] = await Promise.all([audioPromise, imagePromise]);
 
       if (generatedImageUrl && (scene.useVeo || scene.type === 'split_screen' || scene.visualEffect === 'ZOOM_BLUR')) {
@@ -449,10 +437,8 @@ export default function App() {
       const scene = state.scenes.find(s => s.id === sceneId);
       if (!scene) return;
       dispatch({ type: 'ADD_LOG', payload: `Manually retrying ${type} for ${sceneId}...` });
-
-      if (type === 'audio') {
-          await generateAudioForScene(sceneId, scene.script);
-      } else if (type === 'image') {
+      if (type === 'audio') await generateAudioForScene(sceneId, scene.script);
+      else if (type === 'image') {
           const imgUrl = await generateImageForScene(sceneId, scene.imagePrompt || scene.script);
           if (imgUrl && (scene.useVeo || scene.type === 'split_screen') && scene.statusVideo !== 'success') {
               await generateVideoForScene(sceneId, scene.imagePrompt || scene.script, imgUrl);
@@ -517,38 +503,20 @@ export default function App() {
 
   const activeResearchScene = state.scenes.find(s => s.id === researchSceneId);
 
+  // StrategyField Component Helper
   const StrategyField = ({ label, icon, value, options, onChange }: any) => {
-    return (
-      <div className="space-y-2">
-        <label className="text-xs font-bold text-zinc-500 uppercase flex items-center gap-2">
-            {icon} {label}
-        </label>
-        <div className="relative group">
-           <input 
-              type="text" 
-              value={value}
-              onChange={(e) => onChange(e.target.value)}
-              className="w-full bg-zinc-950 border border-zinc-800 rounded-lg p-3 pr-8 text-sm focus:ring-1 focus:ring-blue-500 outline-none"
-              placeholder="Enter custom or select..."
-           />
-           <div className="absolute right-2 top-1/2 -translate-y-1/2 pointer-events-none">
-             <ChevronDown size={14} className="text-zinc-600 group-hover:text-zinc-400" />
-           </div>
-           <select 
-             className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
-             onChange={(e) => {
-               if(e.target.value) onChange(e.target.value);
-             }}
-             value=""
-           >
-             <option value="" disabled>Select an option...</option>
-             {options.map((opt:string) => (
-               <option key={opt} value={opt}>{opt}</option>
-             ))}
-           </select>
+      return (
+        <div className="space-y-2">
+          <label className="text-xs font-bold text-zinc-500 uppercase flex items-center gap-2">
+              {icon} {label}
+          </label>
+          <div className="relative group">
+             <input type="text" value={value} onChange={(e) => onChange(e.target.value)} className="w-full bg-zinc-950 border border-zinc-800 rounded-lg p-3 pr-8 text-sm focus:ring-1 focus:ring-blue-500 outline-none" placeholder="Enter custom or select..." />
+             <div className="absolute right-2 top-1/2 -translate-y-1/2 pointer-events-none"><ChevronDown size={14} className="text-zinc-600 group-hover:text-zinc-400" /></div>
+             <select className="absolute inset-0 w-full h-full opacity-0 cursor-pointer" onChange={(e) => { if(e.target.value) onChange(e.target.value); }} value=""><option value="" disabled>Select an option...</option>{options.map((opt:string) => (<option key={opt} value={opt}>{opt}</option>))}</select>
+          </div>
         </div>
-      </div>
-    );
+      );
   };
 
   const canPreview = state.scenes.length > 0;
@@ -574,111 +542,66 @@ export default function App() {
                </button>
              )}
              <div className="text-xs font-mono text-zinc-600 bg-zinc-900 px-3 py-1 rounded-full border border-zinc-800">
-               v0.1.0
+               v0.2.0
              </div>
           </div>
         </div>
       </header>
 
       <main className="flex-1 flex flex-col pt-16 relative">
+        {/* Same UI Structure */}
         {(state.status === PipelineStep.SCENE_PLANNING || state.status === PipelineStep.RESEARCHING) && (
             <FallingText topic={state.topic} statusText={state.logs[state.logs.length - 1]} />
         )}
 
         {state.status === PipelineStep.IDLE ? (
-          <div className="flex-1 flex flex-col items-center justify-center px-4 py-20 relative overflow-hidden">
-             {/* ... (Same as previous idle screen) ... */}
-              <div className="w-full max-w-3xl relative z-10 space-y-10">
-              <div className="text-center space-y-6">
-                 <h2 className="text-6xl md:text-7xl font-bold tracking-tighter text-white">
-                   Story to Video.
-                 </h2>
-                 <p className="text-zinc-400 text-xl max-w-xl mx-auto leading-relaxed">
-                   Transform ideas, research URLs, and documents into high-fidelity video scenes with one prompt.
-                 </p>
-              </div>
+           <div className="flex-1 flex flex-col items-center justify-center px-4 py-20 relative overflow-hidden">
+           <div className="absolute top-0 left-1/2 -translate-x-1/2 w-[1000px] h-[500px] bg-blue-600/10 rounded-full blur-[120px] pointer-events-none" />
+           <div className="w-full max-w-3xl relative z-10 space-y-10">
+             <div className="text-center space-y-6">
+                <h2 className="text-6xl md:text-7xl font-bold tracking-tighter text-white">
+                  Story to Video.
+                </h2>
+                <p className="text-zinc-400 text-xl max-w-xl mx-auto leading-relaxed">
+                  Transform ideas, research URLs, and documents into high-fidelity video scenes with one prompt.
+                </p>
+             </div>
 
-              <div className="bg-zinc-900/50 backdrop-blur-xl border border-white/10 rounded-2xl p-2 shadow-2xl">
-                  <form onSubmit={handleSubmit} className="flex flex-col gap-2">
-                     <div className="flex items-start px-4 py-4 gap-4">
-                        <div className="pt-1 text-zinc-500">
-                          <BrainCircuit size={24} />
-                        </div>
-                        <input
-                          type="text"
-                          value={inputValue}
-                          onChange={(e) => setInputValue(e.target.value)}
-                          placeholder="What are we creating today? (Paste a URL or topic)"
-                          className="w-full bg-transparent border-none text-xl focus:ring-0 placeholder:text-zinc-600 outline-none text-white font-medium"
-                          autoFocus
-                        />
-                     </div>
-                     
-                     <div className="bg-black/40 rounded-xl p-3 flex flex-wrap items-center gap-4">
-                        <div className="flex items-center gap-2 overflow-x-auto pb-2 md:pb-0 hide-scrollbar">
-                           <span className="text-xs font-bold text-zinc-600 uppercase tracking-wider mr-2">Style</span>
-                           {HOOKS.map(hook => (
-                               <button
-                                  key={hook.id}
-                                  type="button"
-                                  onClick={() => setSelectedHook(hook.id)}
-                                  className={`relative group flex-shrink-0 w-32 h-20 rounded-lg overflow-hidden border transition-all ${selectedHook === hook.id ? 'border-blue-500 ring-2 ring-blue-500/20' : 'border-white/10 opacity-60 hover:opacity-100'}`}
-                               >
-                                  {hook.type === 'video' ? (
-                                      <video 
-                                        src={hook.asset} 
-                                        className="w-full h-full object-cover" 
-                                        loop 
-                                        muted 
-                                        playsInline 
-                                        onMouseOver={e => e.currentTarget.play().catch(() => {})} 
-                                        onMouseOut={e => {e.currentTarget.pause(); e.currentTarget.currentTime = 0;}} 
-                                      />
-                                  ) : (
-                                      <img src={hook.asset} className="w-full h-full object-cover" alt={hook.label} />
-                                  )}
-                                  <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-transparent flex items-end justify-center pb-1">
-                                      <span className="text-[10px] font-bold text-white uppercase text-center px-1 shadow-sm">{hook.label}</span>
-                                  </div>
-                                  {selectedHook === hook.id && (
-                                      <div className="absolute top-1 right-1 w-2 h-2 bg-blue-500 rounded-full shadow-[0_0_5px_rgba(59,130,246,1)]" />
-                                  )}
-                               </button>
-                           ))}
-                        </div>
-
-                        <div className="w-[1px] h-10 bg-white/10 hidden md:block" />
-
-                        <div className="flex gap-1">
-                          <button
-                            type="button"
-                            onClick={() => setSelectedAspectRatio('16:9')}
-                            className={`p-2 rounded-lg border transition-all ${selectedAspectRatio === '16:9' ? 'bg-zinc-800 border-zinc-600 text-white' : 'border-transparent text-zinc-500 hover:text-zinc-300'}`}
-                            title="Landscape"
-                          >
-                             <Monitor size={18} />
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => setSelectedAspectRatio('9:16')}
-                            className={`p-2 rounded-lg border transition-all ${selectedAspectRatio === '9:16' ? 'bg-zinc-800 border-zinc-600 text-white' : 'border-transparent text-zinc-500 hover:text-zinc-300'}`}
-                            title="Portrait"
-                          >
-                             <Smartphone size={18} />
-                          </button>
-                        </div>
-                        
-                        <button 
-                            type="submit"
-                            className="ml-auto px-6 py-3 bg-white text-black font-bold rounded-xl hover:bg-zinc-200 transition-colors flex items-center gap-2 text-sm shadow-[0_0_20px_rgba(255,255,255,0.1)]"
-                        >
-                            Generate <ArrowRight size={16} />
-                        </button>
-                     </div>
-                  </form>
-              </div>
-          </div>
-          </div>
+             <div className="bg-zinc-900/50 backdrop-blur-xl border border-white/10 rounded-2xl p-2 shadow-2xl">
+                 <form onSubmit={handleSubmit} className="flex flex-col gap-2">
+                    <div className="flex items-start px-4 py-4 gap-4">
+                       <div className="pt-1 text-zinc-500">
+                         <BrainCircuit size={24} />
+                       </div>
+                       <input type="text" value={inputValue} onChange={(e) => setInputValue(e.target.value)} placeholder="What are we creating today? (Paste a URL or topic)" className="w-full bg-transparent border-none text-xl focus:ring-0 placeholder:text-zinc-600 outline-none text-white font-medium" autoFocus />
+                    </div>
+                    
+                    <div className="bg-black/40 rounded-xl p-3 flex flex-wrap items-center gap-4">
+                       <div className="flex items-center gap-2 overflow-x-auto pb-2 md:pb-0 hide-scrollbar">
+                          <span className="text-xs font-bold text-zinc-600 uppercase tracking-wider mr-2">Style</span>
+                          {HOOKS.map(hook => (
+                              <button key={hook.id} type="button" onClick={() => setSelectedHook(hook.id)} className={`relative group flex-shrink-0 w-32 h-20 rounded-lg overflow-hidden border transition-all ${selectedHook === hook.id ? 'border-blue-500 ring-2 ring-blue-500/20' : 'border-white/10 opacity-60 hover:opacity-100'}`}>
+                                 {hook.type === 'video' ? (
+                                     <video src={hook.asset} className="w-full h-full object-cover" loop muted playsInline onMouseOver={e => e.currentTarget.play().catch(() => {})} onMouseOut={e => {e.currentTarget.pause(); e.currentTarget.currentTime = 0;}} />
+                                 ) : (
+                                     <img src={hook.asset} className="w-full h-full object-cover" alt={hook.label} />
+                                 )}
+                                 <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-transparent flex items-end justify-center pb-1"><span className="text-[10px] font-bold text-white uppercase text-center px-1 shadow-sm">{hook.label}</span></div>
+                                 {selectedHook === hook.id && <div className="absolute top-1 right-1 w-2 h-2 bg-blue-500 rounded-full shadow-[0_0_5px_rgba(59,130,246,1)]" />}
+                              </button>
+                          ))}
+                       </div>
+                       <div className="w-[1px] h-10 bg-white/10 hidden md:block" />
+                       <div className="flex gap-1">
+                         <button type="button" onClick={() => setSelectedAspectRatio('16:9')} className={`p-2 rounded-lg border transition-all ${selectedAspectRatio === '16:9' ? 'bg-zinc-800 border-zinc-600 text-white' : 'border-transparent text-zinc-500 hover:text-zinc-300'}`} title="Landscape"><Monitor size={18} /></button>
+                         <button type="button" onClick={() => setSelectedAspectRatio('9:16')} className={`p-2 rounded-lg border transition-all ${selectedAspectRatio === '9:16' ? 'bg-zinc-800 border-zinc-600 text-white' : 'border-transparent text-zinc-500 hover:text-zinc-300'}`} title="Portrait"><Smartphone size={18} /></button>
+                       </div>
+                       <button type="submit" className="ml-auto px-6 py-3 bg-white text-black font-bold rounded-xl hover:bg-zinc-200 transition-colors flex items-center gap-2 text-sm shadow-[0_0_20px_rgba(255,255,255,0.1)]">Generate <ArrowRight size={16} /></button>
+                    </div>
+                 </form>
+             </div>
+           </div>
+         </div>
         ) : (
           <div className="flex-1 flex flex-col w-full px-6 py-8 relative z-10">
             <div className="max-w-6xl mx-auto w-full">
@@ -691,17 +614,13 @@ export default function App() {
                             <h3 className="font-bold">Generation Paused</h3>
                             <p className="text-sm opacity-80">{state.error}</p>
                         </div>
-                        <button 
-                        onClick={() => dispatch({ type: 'RESET' })}
-                        className="ml-auto px-4 py-2 bg-red-500/20 hover:bg-red-500/30 text-red-300 rounded-lg text-sm transition-colors"
-                        >Try Again</button>
+                        <button onClick={() => dispatch({ type: 'RESET' })} className="ml-auto px-4 py-2 bg-red-500/20 hover:bg-red-500/30 text-red-300 rounded-lg text-sm transition-colors">Try Again</button>
                     </div>
                 )}
             </div>
 
             {state.status === PipelineStep.STRATEGY && strategyForm && (
                 <div className="max-w-4xl mx-auto w-full animate-in fade-in slide-in-from-bottom-8 duration-500">
-                    {/* ... (Strategy UI same as before) ... */}
                     <div className="bg-zinc-900/80 backdrop-blur-xl border border-zinc-800 rounded-3xl p-8 shadow-2xl">
                         <div className="flex items-center gap-4 mb-8">
                             <div className="w-12 h-12 bg-gradient-to-br from-blue-500 to-purple-600 rounded-2xl flex items-center justify-center shadow-lg">
@@ -719,34 +638,13 @@ export default function App() {
                         </div>
 
                         <div className="grid grid-cols-1 md:grid-cols-3 gap-8 mb-10">
-                            <StrategyField 
-                                label="Target Audience"
-                                icon={<Target size={14} />}
-                                value={strategyForm.targetAudience}
-                                options={AUDIENCE_OPTIONS}
-                                onChange={(val: string) => setStrategyForm({...strategyForm, targetAudience: val})}
-                            />
-                            <StrategyField 
-                                label="Tone & Style"
-                                icon={<PenTool size={14} />}
-                                value={strategyForm.toneStyle}
-                                options={TONE_OPTIONS}
-                                onChange={(val: string) => setStrategyForm({...strategyForm, toneStyle: val})}
-                            />
-                            <StrategyField 
-                                label="Key Objective"
-                                icon={<Lightbulb size={14} />}
-                                value={strategyForm.keyObjective}
-                                options={OBJECTIVE_OPTIONS}
-                                onChange={(val: string) => setStrategyForm({...strategyForm, keyObjective: val})}
-                            />
+                            <StrategyField label="Target Audience" icon={<Target size={14} />} value={strategyForm.targetAudience} options={AUDIENCE_OPTIONS} onChange={(val: string) => setStrategyForm({...strategyForm, targetAudience: val})} />
+                            <StrategyField label="Tone & Style" icon={<PenTool size={14} />} value={strategyForm.toneStyle} options={TONE_OPTIONS} onChange={(val: string) => setStrategyForm({...strategyForm, toneStyle: val})} />
+                            <StrategyField label="Key Objective" icon={<Lightbulb size={14} />} value={strategyForm.keyObjective} options={OBJECTIVE_OPTIONS} onChange={(val: string) => setStrategyForm({...strategyForm, keyObjective: val})} />
                         </div>
 
                         <div className="flex justify-end pt-6 border-t border-white/5">
-                             <button 
-                                onClick={confirmStrategyAndPlan}
-                                className="px-8 py-4 bg-white text-black font-bold rounded-2xl hover:scale-105 transition-all flex items-center gap-3 shadow-[0_0_30px_rgba(255,255,255,0.1)]"
-                             >
+                             <button onClick={confirmStrategyAndPlan} className="px-8 py-4 bg-white text-black font-bold rounded-2xl hover:scale-105 transition-all flex items-center gap-3 shadow-[0_0_30px_rgba(255,255,255,0.1)]">
                                 <Zap size={20} /> Generate Narrative & Scenes
                              </button>
                         </div>
@@ -754,11 +652,8 @@ export default function App() {
                 </div>
             )}
 
-            {/* Layout for Review/Production Phase */}
             {(state.status === PipelineStep.REVIEW || state.status === PipelineStep.RESEARCHING || state.status === PipelineStep.ASSET_GENERATION || state.status === PipelineStep.COMPLETE) && (
                 <div className="relative flex max-w-7xl mx-auto w-full gap-12">
-                    
-                    {/* Sticky Narrative Sidebar */}
                     <div className="hidden xl:block w-72 flex-shrink-0">
                         <div className="sticky top-24 max-h-[calc(100vh-8rem)] overflow-y-auto pr-4 custom-scrollbar">
                             <h3 className="text-sm font-bold text-zinc-500 uppercase tracking-widest mb-6 sticky top-0 bg-black py-2 z-10 flex items-center gap-2">
@@ -768,21 +663,12 @@ export default function App() {
                                 {state.narrativeBeats.map((beat, i) => {
                                     const isActive = activeSceneIndex === i || (i === state.narrativeBeats.length -1 && activeSceneIndex >= i);
                                     return (
-                                        <div 
-                                            key={i} 
-                                            className={`relative pl-6 py-2 transition-all duration-500 ${isActive ? 'opacity-100' : 'opacity-40'}`}
-                                        >
+                                        <div key={i} className={`relative pl-6 py-2 transition-all duration-500 ${isActive ? 'opacity-100' : 'opacity-40'}`}>
                                             <div className={`absolute left-[-5px] top-3.5 w-2.5 h-2.5 rounded-full border-2 transition-all duration-500 z-10 ${isActive ? 'bg-blue-500 border-blue-400 scale-125 shadow-[0_0_10px_rgba(59,130,246,0.8)]' : 'bg-zinc-900 border-zinc-700'}`} />
                                             {isActive && <div className="absolute left-[-5px] top-3.5 w-2.5 h-2.5 rounded-full bg-blue-500 animate-ping" />}
-                                            
-                                            <h4 className={`text-sm font-bold transition-colors ${isActive ? 'text-white' : 'text-zinc-400'}`}>
-                                                {beat.beat}
-                                            </h4>
-                                            
+                                            <h4 className={`text-sm font-bold transition-colors ${isActive ? 'text-white' : 'text-zinc-400'}`}>{beat.beat}</h4>
                                             <div className={`overflow-hidden transition-all duration-500 ${isActive ? 'max-h-40 mt-2' : 'max-h-0'}`}>
-                                                <p className="text-xs text-zinc-400 leading-relaxed border-l-2 border-zinc-800 pl-3">
-                                                    {beat.description}
-                                                </p>
+                                                <p className="text-xs text-zinc-400 leading-relaxed border-l-2 border-zinc-800 pl-3">{beat.description}</p>
                                             </div>
                                         </div>
                                     );
@@ -791,7 +677,6 @@ export default function App() {
                         </div>
                     </div>
 
-                    {/* Main Feed */}
                     <div className="flex-1 pb-40 space-y-24 min-w-0">
                         <div className="flex justify-between items-end border-b border-zinc-800 pb-4 mb-10">
                             <div>
@@ -800,30 +685,19 @@ export default function App() {
                                     {state.status === PipelineStep.ASSET_GENERATION && <ProductionTimer />}
                                 </div>
                                 <p className="text-zinc-400">
-                                    {state.status === PipelineStep.ASSET_GENERATION 
-                                        ? "Generating high-fidelity assets (Audio → Image → Video)..." 
-                                        : state.status === PipelineStep.RESEARCHING 
-                                        ? "Performing deep research across visual databases..."
-                                        : "Review assets, scripts, and visual direction."
-                                    }
+                                    {state.status === PipelineStep.ASSET_GENERATION ? "Generating high-fidelity assets (Audio → Image → Video)..." : state.status === PipelineStep.RESEARCHING ? "Performing deep research & asset ingestion..." : "Review assets, scripts, and visual direction."}
                                 </p>
                             </div>
                             
                             {canPreview && (
-                                <button 
-                                    onClick={() => setIsPreviewOpen(true)}
-                                    className={`flex items-center gap-2 px-6 py-3 rounded-full transition-all font-bold shadow-[0_0_20px_rgba(255,255,255,0.15)] ${state.status === PipelineStep.ASSET_GENERATION ? 'bg-zinc-800 text-white border border-zinc-700' : 'bg-white text-black hover:bg-zinc-200'}`}
-                                >
+                                <button onClick={() => setIsPreviewOpen(true)} className={`flex items-center gap-2 px-6 py-3 rounded-full transition-all font-bold shadow-[0_0_20px_rgba(255,255,255,0.15)] ${state.status === PipelineStep.ASSET_GENERATION ? 'bg-zinc-800 text-white border border-zinc-700' : 'bg-white text-black hover:bg-zinc-200'}`}>
                                     <PlayCircle size={20} className={state.status === PipelineStep.ASSET_GENERATION ? 'text-blue-400' : 'text-black'} />
                                     {state.status === PipelineStep.ASSET_GENERATION ? 'Live Preview' : 'Watch Full Preview'}
                                 </button>
                             )}
 
                             {state.status === PipelineStep.REVIEW && (
-                                <button 
-                                    onClick={approveAndGenerate}
-                                    className="px-6 py-3 bg-blue-600 hover:bg-blue-500 text-white font-bold rounded-full shadow-lg shadow-blue-900/30 flex items-center gap-2 transition-all hover:scale-105"
-                                >
+                                <button onClick={approveAndGenerate} className="px-6 py-3 bg-blue-600 hover:bg-blue-500 text-white font-bold rounded-full shadow-lg shadow-blue-900/30 flex items-center gap-2 transition-all hover:scale-105">
                                     Start Production <ArrowRight size={18} />
                                 </button>
                             )}
@@ -831,28 +705,8 @@ export default function App() {
 
                         {state.scenes.map((scene, index) => (
                             <div key={scene.id} id={`scene-card-${index}`} data-index={index} className="relative">
-                                {/* Connector Line */}
-                                {index < state.scenes.length - 1 && (
-                                    <div className="absolute left-8 top-full h-24 w-[2px] bg-gradient-to-b from-zinc-800 to-transparent z-0" />
-                                )}
-                                
-                                <SceneCard 
-                                    scene={scene} 
-                                    index={index}
-                                    status={state.status}
-                                    userLinks={state.userLinks}
-                                    onClick={() => {}}
-                                    onViewResearch={(e) => {
-                                        e.stopPropagation();
-                                        setResearchSceneId(scene.id);
-                                    }}
-                                    onEditScript={(e) => {
-                                        e.stopPropagation();
-                                        setEditingSceneId(scene.id);
-                                        setEditScriptText(scene.script);
-                                    }}
-                                    onRetryAsset={handleRetryAsset}
-                                />
+                                {index < state.scenes.length - 1 && <div className="absolute left-8 top-full h-24 w-[2px] bg-gradient-to-b from-zinc-800 to-transparent z-0" />}
+                                <SceneCard scene={scene} index={index} status={state.status} userLinks={state.userLinks} onClick={() => {}} onViewResearch={(e) => { e.stopPropagation(); setResearchSceneId(scene.id); }} onEditScript={(e) => { e.stopPropagation(); setEditingSceneId(scene.id); setEditScriptText(scene.script); }} onRetryAsset={handleRetryAsset} />
                             </div>
                         ))}
                     </div>
@@ -862,57 +716,28 @@ export default function App() {
         )}
       </main>
       
-      {/* Script Editor Modal */}
       {editingSceneId && (
           <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4 animate-in fade-in duration-200">
               <div className="w-full max-w-lg bg-zinc-900 border border-zinc-800 rounded-3xl p-8 shadow-2xl">
-                  {/* ... (Script editor content same as before) ... */}
                   <div className="flex items-center justify-between mb-6">
-                     <h3 className="text-xl font-bold flex items-center gap-3 text-white">
-                        <Edit2 size={20} className="text-blue-500"/> Edit Script
-                     </h3>
+                     <h3 className="text-xl font-bold flex items-center gap-3 text-white"><Edit2 size={20} className="text-blue-500"/> Edit Script</h3>
                      <span className="text-xs text-zinc-500 font-mono bg-zinc-950 px-2 py-1 rounded">SCENE {editingSceneId}</span>
                   </div>
-                  
                   <div className="bg-zinc-950 p-4 rounded-xl border border-zinc-800 mb-6">
                      <label className="text-xs font-bold text-zinc-500 uppercase tracking-wider mb-3 block">Voiceover Text</label>
-                     <textarea 
-                        value={editScriptText}
-                        onChange={(e) => setEditScriptText(e.target.value)}
-                        className="w-full h-48 bg-transparent text-zinc-100 focus:outline-none resize-none font-serif text-xl leading-relaxed"
-                     />
+                     <textarea value={editScriptText} onChange={(e) => setEditScriptText(e.target.value)} className="w-full h-48 bg-transparent text-zinc-100 focus:outline-none resize-none font-serif text-xl leading-relaxed" />
                   </div>
-                  
                   <div className="flex justify-end gap-3">
-                      <button 
-                         onClick={() => setEditingSceneId(null)}
-                         className="px-6 py-3 text-zinc-400 hover:text-white transition-colors"
-                      >Cancel</button>
-                      <button 
-                         onClick={handleSaveScript}
-                         className="px-6 py-3 bg-white text-black font-bold rounded-xl flex items-center gap-2 hover:bg-zinc-200 transition-colors"
-                      >
-                          Save Changes
-                      </button>
+                      <button onClick={() => setEditingSceneId(null)} className="px-6 py-3 text-zinc-400 hover:text-white transition-colors">Cancel</button>
+                      <button onClick={handleSaveScript} className="px-6 py-3 bg-white text-black font-bold rounded-xl flex items-center gap-2 hover:bg-zinc-200 transition-colors">Save Changes</button>
                   </div>
               </div>
           </div>
       )}
 
-      {isPreviewOpen && state.scenes.length > 0 && (
-        <PreviewPlayer 
-          scenes={state.scenes} 
-          onClose={() => setIsPreviewOpen(false)} 
-        />
-      )}
+      {isPreviewOpen && state.scenes.length > 0 && <PreviewPlayer scenes={state.scenes} onClose={() => setIsPreviewOpen(false)} />}
       
-      {activeResearchScene && (
-        <ResearchPopup 
-            scene={activeResearchScene}
-            onClose={() => setResearchSceneId(null)}
-            onMixAssets={handleMixAssets}
-        />
-      )}
+      {activeResearchScene && <ResearchPopup scene={activeResearchScene} onClose={() => setResearchSceneId(null)} onMixAssets={handleMixAssets} />}
     </div>
   );
 }

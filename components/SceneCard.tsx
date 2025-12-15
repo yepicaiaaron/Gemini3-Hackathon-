@@ -1,7 +1,7 @@
 
 import React, { useEffect, useState } from 'react';
 import { Scene, PipelineStep, AssetStatus } from '../types';
-import { Clock, Film, Sparkles, Move, Search, Cpu, Edit2, PlayCircle, Mic, MonitorPlay, ExternalLink, Link2, FileSearch, Image as ImageIcon, Video as VideoIcon, AlertTriangle, Trophy, BrainCircuit, CheckCircle2, Loader2, XCircle, RefreshCw, Globe, Layers, Zap } from 'lucide-react';
+import { Clock, Film, Move, Search, Cpu, Edit2, PlayCircle, Mic, Image as ImageIcon, Video as VideoIcon, AlertTriangle, Trophy, BrainCircuit, CheckCircle2, Loader2, XCircle, RefreshCw, Layers } from 'lucide-react';
 
 interface SceneCardProps {
   scene: Scene;
@@ -55,19 +55,13 @@ const StatusRow = ({ label, status, onRetry, icon }: { label: string, status: As
     );
 };
 
-export const SceneCard: React.FC<SceneCardProps> = ({ scene, index, status, userLinks = [], onClick, onViewResearch, onEditScript, onRetryAsset }) => {
+export const SceneCard: React.FC<SceneCardProps> = ({ scene, index, status, onClick, onViewResearch, onEditScript, onRetryAsset }) => {
   const isReviewMode = status === PipelineStep.REVIEW || status === PipelineStep.RESEARCHING;
   const isProduction = status === PipelineStep.ASSET_GENERATION || status === PipelineStep.COMPLETE;
   const isResearching = scene.isResearching;
   
-  // Calculate Research Score based on FetchedAssets
-  // Rules: 0.5 per text, 1 per image, 2 per video
-  const assets = scene.fetchedAssets || [];
-  const textCount = assets.filter(a => a.type === 'text' || a.type === undefined).length;
-  const imageCount = assets.filter(a => a.type === 'image').length;
-  const videoCount = assets.filter(a => a.type === 'video').length;
-  
-  const researchScore = (textCount * 0.5) + (imageCount * 1) + (videoCount * 2);
+  const assets = scene.assets || [];
+  const researchScore = (assets.filter(a => a.type === 'text').length * 0.5) + (assets.filter(a => a.type === 'image').length * 1) + (assets.filter(a => a.type === 'video').length * 2);
   const isLowIntel = researchScore < 2;
 
   const needsVideo = scene.useVeo || scene.type === 'split_screen' || scene.visualEffect === 'ZOOM_BLUR';
@@ -82,7 +76,6 @@ export const SceneCard: React.FC<SceneCardProps> = ({ scene, index, status, user
     >
       <div className="flex flex-col lg:flex-row h-auto lg:h-[600px]">
           
-          {/* LEFT: VISUAL CANVAS */}
           <div className="lg:w-7/12 relative h-[300px] lg:h-full bg-black border-b lg:border-b-0 lg:border-r border-zinc-800 group-hover:border-zinc-700 transition-colors flex flex-col">
               <div className="relative flex-1 overflow-hidden">
                 {scene.imageUrl ? (
@@ -137,7 +130,6 @@ export const SceneCard: React.FC<SceneCardProps> = ({ scene, index, status, user
               </div>
           </div>
 
-          {/* RIGHT: NARRATIVE & RESEARCH DOCK */}
           <div className="lg:w-5/12 flex flex-col bg-zinc-900/50">
               <div className="px-6 py-6 border-b border-white/5 flex items-center justify-between">
                   <div className="flex items-center gap-3">
@@ -149,7 +141,6 @@ export const SceneCard: React.FC<SceneCardProps> = ({ scene, index, status, user
                      </div>
                   </div>
                   
-                  {/* Research Score Badge */}
                   <div className={`flex items-center gap-2 px-3 py-1 rounded-full border transition-all ${isResearching ? 'bg-blue-500/10 border-blue-500/20 text-blue-400' : isLowIntel ? 'bg-red-500/10 border-red-500/20 text-red-400' : 'bg-green-500/10 border-green-500/20 text-green-400'}`}>
                       {isResearching ? <Loader2 size={12} className="animate-spin" /> : isLowIntel ? <AlertTriangle size={12} /> : <Trophy size={12} />}
                       <span className="text-[10px] font-bold tracking-wider">
@@ -160,7 +151,6 @@ export const SceneCard: React.FC<SceneCardProps> = ({ scene, index, status, user
 
               <div className="flex-1 p-6 flex flex-col space-y-6 overflow-y-auto">
                   
-                  {/* Script Section */}
                   <div>
                       <div className="flex items-center justify-between mb-3">
                           <span className="text-xs font-bold text-zinc-500 uppercase tracking-wider flex items-center gap-2">
@@ -177,7 +167,6 @@ export const SceneCard: React.FC<SceneCardProps> = ({ scene, index, status, user
                       </p>
                   </div>
 
-                  {/* Research Dock - Phase 1.5 UI */}
                   <div className="bg-black/40 rounded-xl border border-white/5 p-4 space-y-3">
                       <div className="flex items-center justify-between">
                           <span className="text-xs font-bold text-zinc-500 uppercase tracking-wider flex items-center gap-2">
@@ -201,20 +190,35 @@ export const SceneCard: React.FC<SceneCardProps> = ({ scene, index, status, user
                               {assets.slice(0, 4).map((asset, i) => (
                                   <div key={i} className="aspect-square bg-zinc-900 rounded-lg overflow-hidden border border-zinc-800 relative group/asset cursor-help" title={asset.title}>
                                       {asset.type === 'image' ? (
-                                          <img src={asset.url} className="w-full h-full object-cover opacity-70 group-hover/asset:opacity-100 transition-opacity" />
+                                          <img 
+                                            src={asset.proxyUrl} 
+                                            className="w-full h-full object-cover opacity-70 group-hover/asset:opacity-100 transition-opacity" 
+                                            onError={(e) => {
+                                                e.currentTarget.style.display = 'none';
+                                                e.currentTarget.parentElement?.querySelector('.fallback')?.classList.remove('hidden');
+                                            }}
+                                          />
                                       ) : asset.type === 'video' ? (
                                           <div className="w-full h-full bg-zinc-800 flex items-center justify-center text-purple-500">
                                               <VideoIcon size={16} />
                                           </div>
                                       ) : (
-                                          <div className="w-full h-full bg-zinc-900 flex items-center justify-center text-blue-500">
-                                              <FileSearch size={16} />
+                                          <div className="w-full h-full bg-zinc-950 flex items-center justify-center relative">
+                                              <img 
+                                                  src={`https://www.google.com/s2/favicons?domain=${asset.sourceDomain}&sz=64`} 
+                                                  className="w-6 h-6 opacity-60 grayscale group-hover/asset:grayscale-0 group-hover/asset:opacity-100 transition-all"
+                                              />
                                           </div>
                                       )}
                                       
-                                      {/* Tiny type badge */}
-                                      <div className={`absolute bottom-0 right-0 p-0.5 rounded-tl bg-black/80 text-[8px] font-bold ${asset.type === 'video' ? 'text-purple-400' : asset.type === 'image' ? 'text-green-400' : 'text-blue-400'}`}>
-                                          {asset.type === 'video' ? '2.0' : asset.type === 'image' ? '1.0' : '0.5'}
+                                      <div className="fallback hidden absolute inset-0 bg-zinc-900 flex items-center justify-center">
+                                          <div className="w-full h-full border-2 border-dashed border-zinc-800 flex items-center justify-center">
+                                            <AlertTriangle size={10} className="text-zinc-700" />
+                                          </div>
+                                      </div>
+
+                                      <div className={`absolute bottom-0 right-0 p-0.5 rounded-tl bg-black/90 border-t border-l border-zinc-800 text-[8px] font-bold z-10 ${asset.type === 'video' ? 'text-purple-400' : asset.type === 'image' ? 'text-green-400' : 'text-blue-400'}`}>
+                                          {asset.type === 'video' ? '+2.0' : asset.type === 'image' ? '+1.0' : '+0.5'}
                                       </div>
                                   </div>
                               ))}
@@ -228,33 +232,14 @@ export const SceneCard: React.FC<SceneCardProps> = ({ scene, index, status, user
 
                   <div className="flex-1" />
 
-                  {/* Production Status */}
                   {isProduction && (
                       <div className="space-y-1 bg-zinc-950/50 rounded-xl p-4 border border-zinc-800/50">
-                          <StatusRow 
-                            label="Neural Voice" 
-                            status={scene.statusAudio} 
-                            onRetry={() => onRetryAsset?.(scene.id, 'audio')}
-                            icon={<Mic size={14} />} 
-                          />
-                          <StatusRow 
-                            label="Scene Composition" 
-                            status={scene.statusImage} 
-                            onRetry={() => onRetryAsset?.(scene.id, 'image')}
-                            icon={<ImageIcon size={14} />} 
-                          />
-                          {needsVideo && (
-                            <StatusRow 
-                                label="Veo Motion" 
-                                status={scene.statusVideo} 
-                                onRetry={() => onRetryAsset?.(scene.id, 'video')}
-                                icon={<VideoIcon size={14} />} 
-                            />
-                          )}
+                          <StatusRow label="Neural Voice" status={scene.statusAudio} onRetry={() => onRetryAsset?.(scene.id, 'audio')} icon={<Mic size={14} />} />
+                          <StatusRow label="Scene Composition" status={scene.statusImage} onRetry={() => onRetryAsset?.(scene.id, 'image')} icon={<ImageIcon size={14} />} />
+                          {needsVideo && <StatusRow label="Veo Motion" status={scene.statusVideo} onRetry={() => onRetryAsset?.(scene.id, 'video')} icon={<VideoIcon size={14} />} />}
                       </div>
                   )}
 
-                  {/* Visual Plan */}
                   <div className="space-y-2">
                        <h5 className="text-xs font-bold text-zinc-500 uppercase tracking-wider flex items-center gap-2">
                           <Move size={14} /> Motion & Effect
