@@ -1,3 +1,4 @@
+
 import React, { useState } from 'react';
 import { X, Globe, Search, ExternalLink, Image as ImageIcon, LayoutDashboard, Video, FileText, AlertTriangle, CheckCircle, Clock, Blend, Loader2, Maximize2, Eye } from 'lucide-react';
 import { Scene } from '../types';
@@ -15,28 +16,26 @@ export const ResearchPopup: React.FC<ResearchPopupProps> = ({ scene, onClose, on
   const [isMixing, setIsMixing] = useState(false);
 
   // Normalize assets
-  const userLinks = scene.referenceLinks || [];
-  const groundingLinks = scene.groundingChunks?.map(g => ({
-    url: g.web?.uri || '',
-    title: g.web?.title || 'Web Source',
-    type: 'web'
-  })) || [];
-
-  // Merge and classify
-  const allAssets = [
-    ...userLinks.map(url => ({
+  // Prioritize FetchedAssets from Phase 1.5, fallback to user links if needed
+  const fetchedAssets = scene.fetchedAssets || [];
+  
+  // Also include user provided links if they aren't duplicates
+  const userLinks = (scene.referenceLinks || []).filter(link => !fetchedAssets.find(fa => fa.url === link)).map(url => ({
       url,
       title: 'User Provided Asset',
-      type: url.match(/\.(mp4|mov|webm)$/i) ? 'video' : url.match(/\.(jpeg|jpg|gif|png|webp)$/i) ? 'image' : 'web'
-    })),
-    ...groundingLinks
-  ].filter(a => a.url); // filter empty
+      type: url.match(/\.(mp4|mov|webm)$/i) ? 'video' as const : url.match(/\.(jpeg|jpg|gif|png|webp)$/i) ? 'image' as const : 'text' as const,
+      source: 'User Input'
+  }));
 
-  // Scoring Logic
+  const allAssets = [...fetchedAssets, ...userLinks];
+
+  // Scoring Logic Updates (0.5 for text, 1 for image, 2 for video)
   const imageCount = allAssets.filter(a => a.type === 'image').length;
   const videoCount = allAssets.filter(a => a.type === 'video').length;
-  const webCount = allAssets.filter(a => a.type === 'web').length;
-  const totalScore = (imageCount * 1) + (videoCount * 3) + (webCount * 1);
+  // Count text assets (type 'text' or implicitly 'web'/'article')
+  const textCount = allAssets.filter(a => a.type === 'text' || (!['image', 'video'].includes(a.type))).length;
+  
+  const totalScore = (textCount * 0.5) + (imageCount * 1) + (videoCount * 2);
   const targetScore = 5; // Per scene target
   const progress = Math.min(100, (totalScore / targetScore) * 100);
 
@@ -72,22 +71,42 @@ export const ResearchPopup: React.FC<ResearchPopupProps> = ({ scene, onClose, on
       setPreviewAsset(asset);
   };
 
-  const getThumbnail = (asset: any) => {
+  const AssetThumbnail = ({ asset }: { asset: any }) => {
+      const [hasError, setHasError] = useState(false);
+
+      if (hasError || asset.type === 'text') {
+          return (
+             <div className="w-full h-full bg-zinc-900 flex flex-col items-center justify-center p-6 text-zinc-700 group-hover:text-zinc-500 border border-zinc-800">
+                <FileText size={32} className="mb-2" />
+                <span className="text-[10px] font-mono text-center opacity-50">TEXT SOURCE</span>
+            </div>
+          );
+      }
+
       if (asset.type === 'image') {
           return (
-              <img src={asset.url} alt={asset.title} className="w-full h-full object-cover transition-transform duration-700 group-hover:scale-105" onError={(e) => (e.currentTarget.style.display = 'none')} />
+              <img 
+                src={asset.url} 
+                alt={asset.title} 
+                className="w-full h-full object-cover transition-transform duration-700 group-hover:scale-105" 
+                onError={() => setHasError(true)} 
+              />
           );
       }
       if (asset.type === 'video') {
           return (
-              <video src={asset.url} className="w-full h-full object-cover transition-transform duration-700 group-hover:scale-105" muted loop onMouseOver={e => e.currentTarget.play()} onMouseOut={e => e.currentTarget.pause()} />
+              <video 
+                src={asset.url} 
+                className="w-full h-full object-cover transition-transform duration-700 group-hover:scale-105" 
+                muted 
+                loop 
+                onMouseOver={e => e.currentTarget.play()} 
+                onMouseOut={e => e.currentTarget.pause()}
+                onError={() => setHasError(true)}
+              />
           );
       }
-      return (
-          <div className="w-full h-full bg-zinc-900 flex flex-col items-center justify-center p-6 text-zinc-700 group-hover:text-zinc-500">
-              <Globe size={32} />
-          </div>
-      );
+      return null;
   };
 
   return (
@@ -101,9 +120,9 @@ export const ResearchPopup: React.FC<ResearchPopupProps> = ({ scene, onClose, on
               </button>
               <div className="max-w-6xl max-h-[80vh] w-full flex items-center justify-center relative" onClick={e => e.stopPropagation()}>
                   {previewAsset.type === 'video' ? (
-                      <video src={previewAsset.url} controls autoPlay className="max-w-full max-h-full rounded-lg shadow-2xl border border-zinc-800" />
+                      <video src={previewAsset.url} controls autoPlay className="max-w-full max-h-full rounded-lg shadow-2xl border border-zinc-800" onError={() => alert("Could not load video directly due to CORS restrictions. Please visit the site.")} />
                   ) : previewAsset.type === 'image' ? (
-                      <img src={previewAsset.url} alt={previewAsset.title} className="max-w-full max-h-full object-contain rounded-lg shadow-2xl border border-zinc-800" />
+                      <img src={previewAsset.url} alt={previewAsset.title} className="max-w-full max-h-full object-contain rounded-lg shadow-2xl border border-zinc-800" onError={() => alert("Could not load image directly due to CORS restrictions. Please visit the site.")} />
                   ) : (
                       <div className="bg-zinc-900 p-12 rounded-2xl text-center border border-zinc-800">
                           <Globe size={64} className="mx-auto mb-4 text-blue-500" />
@@ -229,15 +248,15 @@ export const ResearchPopup: React.FC<ResearchPopupProps> = ({ scene, onClose, on
 
                                    {/* Preview Trigger (Main Body) */}
                                    <div className="aspect-video w-full bg-black relative cursor-zoom-in" onClick={() => openPreview(asset)}>
-                                        {getThumbnail(asset)}
+                                        <AssetThumbnail asset={asset} />
                                         
                                         {/* Overlay Icon */}
-                                        <div className="absolute inset-0 flex items-center justify-center bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity">
+                                        <div className="absolute inset-0 flex items-center justify-center bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none">
                                             {asset.type === 'video' ? <Video size={24} className="text-white drop-shadow-lg" /> : <Eye size={24} className="text-white drop-shadow-lg" />}
                                         </div>
 
-                                        {/* Type Badge */}
-                                        <div className="absolute bottom-2 left-2 z-10">
+                                        {/* Type Badge & Point Value */}
+                                        <div className="absolute bottom-2 left-2 z-10 flex gap-1">
                                             <span className={`text-[10px] font-bold px-2 py-0.5 rounded uppercase backdrop-blur-md ${
                                                 asset.type === 'video' ? 'bg-purple-900/80 text-purple-200' : 
                                                 asset.type === 'image' ? 'bg-green-900/80 text-green-200' : 
@@ -245,13 +264,16 @@ export const ResearchPopup: React.FC<ResearchPopupProps> = ({ scene, onClose, on
                                             }`}>
                                                 {asset.type}
                                             </span>
+                                            <span className="text-[10px] font-bold px-2 py-0.5 rounded uppercase backdrop-blur-md bg-zinc-800/80 text-zinc-300 border border-zinc-700">
+                                                +{asset.type === 'video' ? 2 : asset.type === 'image' ? 1 : 0.5}pts
+                                            </span>
                                         </div>
                                    </div>
 
                                    <div className="p-4" onClick={() => openPreview(asset)}>
                                        <div className="flex items-center justify-between mb-1">
                                             <p className="text-xs text-zinc-500 font-mono truncate max-w-[80%]">
-                                                {new URL(asset.url).hostname}
+                                                {asset.source || new URL(asset.url).hostname}
                                             </p>
                                             <ExternalLink size={12} className="text-zinc-600 group-hover:text-zinc-400" />
                                        </div>

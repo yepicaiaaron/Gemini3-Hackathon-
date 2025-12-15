@@ -3,7 +3,7 @@ export enum PipelineStep {
   IDLE = 'IDLE',
   ANALYZING = 'ANALYZING', // Agent analyzes input/link
   STRATEGY = 'STRATEGY', // User confirms strategy
-  RESEARCHING = 'RESEARCHING', // Deep research (optional, merged into Analysis usually but kept for flow)
+  RESEARCHING = 'RESEARCHING', // Phase 1.5: Deep Research
   NARRATIVE = 'NARRATIVE',
   SCENE_PLANNING = 'SCENE_PLANNING',
   REVIEW = 'REVIEW',
@@ -50,6 +50,13 @@ export type AspectRatio = '16:9' | '9:16' | '1:1';
 
 export type AssetStatus = 'idle' | 'loading' | 'success' | 'error';
 
+export interface FetchedAsset {
+  type: 'image' | 'video' | 'text';
+  url: string;
+  title: string;
+  source: string;
+}
+
 export interface Scene {
   id: string;
   duration: number; // seconds
@@ -59,13 +66,14 @@ export interface Scene {
   motionIntent: string[];
   visualEffect: VisualEffect;
   effectReasoning: string; 
-  reasoning: string; // New: Detailed reasoning for the scene choice
-  visualResearchPlan: string; // Explain what assets are needed/used
-  referenceLinks?: string[]; 
+  reasoning: string; 
+  visualResearchPlan: string; 
+  referenceLinks?: string[]; // Deprecated in favor of fetchedAssets but kept for backward compatibility if needed
+  fetchedAssets: FetchedAsset[]; // NEW: Database of verified research assets
   imagePrompt?: string;
   imageUrl?: string;
   videoUrl?: string;
-  useVeo?: boolean; // New: Should this scene be a video?
+  useVeo?: boolean; 
   audioUrl?: string;
   groundingChunks?: GroundingChunk[];
   
@@ -73,6 +81,9 @@ export interface Scene {
   statusAudio: AssetStatus;
   statusImage: AssetStatus;
   statusVideo: AssetStatus;
+  
+  // Phase 1.5 Status
+  isResearching?: boolean;
 }
 
 export interface ProjectState {
@@ -96,6 +107,8 @@ export type AgentAction =
   | { type: 'SET_NARRATIVE'; payload: NarrativeBeat[] }
   | { type: 'SET_SCENES'; payload: Scene[] }
   | { type: 'UPDATE_ASSET_STATUS'; payload: { id: string; type: 'audio' | 'image' | 'video'; status: AssetStatus } }
+  | { type: 'UPDATE_SCENE_RESEARCH_STATUS'; payload: { id: string; isResearching: boolean } }
+  | { type: 'ADD_SCENE_ASSETS'; payload: { id: string; assets: FetchedAsset[] } }
   | { type: 'UPDATE_SCENE_IMAGE'; payload: { id: string; url: string; groundingChunks?: GroundingChunk[] } }
   | { type: 'UPDATE_SCENE_VIDEO'; payload: { id: string; url: string } }
   | { type: 'UPDATE_SCENE_SCRIPT'; payload: { id: string; script: string } }

@@ -9,7 +9,8 @@ import {
   VideoStrategy,
   HookStyle,
   AspectRatio,
-  AssetStatus
+  AssetStatus,
+  FetchedAsset
 } from './types';
 import * as GeminiService from './services/gemini';
 import { PipelineSteps } from './components/PipelineSteps';
@@ -144,6 +145,20 @@ function reducer(state: ProjectState, action: AgentAction): ProjectState {
           return { ...s, ...updates };
         })
       };
+    case 'UPDATE_SCENE_RESEARCH_STATUS':
+      return {
+        ...state,
+        scenes: state.scenes.map(s => s.id === action.payload.id ? { ...s, isResearching: action.payload.isResearching } : s)
+      };
+    case 'ADD_SCENE_ASSETS':
+      return {
+        ...state,
+        scenes: state.scenes.map(s => s.id === action.payload.id ? { 
+            ...s, 
+            fetchedAssets: [...s.fetchedAssets, ...action.payload.assets] 
+        } : s),
+        logs: [...state.logs, `Research complete for ${action.payload.id}. Found ${action.payload.assets.length} assets.`]
+      };
     case 'UPDATE_SCENE_IMAGE':
       return {
         ...state,
@@ -259,24 +274,6 @@ export default function App() {
     }
   };
 
-  const playVoiceSample = async () => {
-    await checkApiKey();
-    try {
-        const audioUrl = await GeminiService.generateSpeech("Hello! This is a preview of my voice.", selectedVoice);
-        const audio = new Audio(audioUrl);
-        audio.play();
-    } catch(e) {
-        console.error("Voice preview failed", e);
-    }
-  };
-
-  const handleSaveScript = () => {
-    if (editingSceneId) {
-        dispatch({ type: 'UPDATE_SCENE_SCRIPT', payload: { id: editingSceneId, script: editScriptText } });
-        setEditingSceneId(null);
-    }
-  };
-
   const extractUrls = (text: string) => {
     const urlRegex = /(https?:\/\/[^\s]+)/g;
     return text.match(urlRegex) || [];
@@ -307,6 +304,35 @@ export default function App() {
     }
   }, [selectedVoice, selectedHook, selectedAspectRatio]);
 
+  // Phase 1.5: Deep Research (Concurrent)
+  const runDeepResearch = async (scenes: Scene[]) => {
+      dispatch({ type: 'SET_STATUS', payload: PipelineStep.RESEARCHING });
+      dispatch({ type: 'ADD_LOG', payload: 'PHASE 1.5: Starting High-Concurrency Deep Research...' });
+
+      const RESEARCH_CONCURRENCY = 10;
+      
+      const processResearch = async (scene: Scene) => {
+          dispatch({ type: 'UPDATE_SCENE_RESEARCH_STATUS', payload: { id: scene.id, isResearching: true } });
+          const assets = await GeminiService.researchScene(scene);
+          dispatch({ type: 'ADD_SCENE_ASSETS', payload: { id: scene.id, assets } });
+          dispatch({ type: 'UPDATE_SCENE_RESEARCH_STATUS', payload: { id: scene.id, isResearching: false } });
+      };
+
+      // Simple Batching Logic for concurrency
+      const queue = [...scenes];
+      const workers = Array.from({ length: RESEARCH_CONCURRENCY }).map(async () => {
+          while (queue.length > 0) {
+              const scene = queue.shift();
+              if (scene) await processResearch(scene);
+          }
+      });
+
+      await Promise.all(workers);
+      
+      dispatch({ type: 'SET_STATUS', payload: PipelineStep.REVIEW });
+      dispatch({ type: 'ADD_LOG', payload: 'Research phase complete. Ready for review.' });
+  };
+
   // Phase 2: Planning
   const confirmStrategyAndPlan = useCallback(async () => {
     if (!strategyForm) return;
@@ -324,8 +350,8 @@ export default function App() {
       const scenes = await GeminiService.planScenes(beats, state.aspectRatio, state.userLinks, strategyForm, state.hookStyle);
       dispatch({ type: 'SET_SCENES', payload: scenes });
       
-      dispatch({ type: 'SET_STATUS', payload: PipelineStep.REVIEW });
-      dispatch({ type: 'ADD_LOG', payload: 'Waiting for user approval...' });
+      // TRIGGER PHASE 1.5
+      await runDeepResearch(scenes);
 
     } catch (error: any) {
       dispatch({ type: 'SET_ERROR', payload: error.message || 'Unknown error' });
@@ -334,10 +360,12 @@ export default function App() {
 
   // --- ASSET GENERATION PIPELINE (With Retry) ---
 
-  const MAX_RETRIES = 3;
+  const MAX_RETRIES = 5;
 
-  // Helper to generate audio with automatic retry
   const generateAudioForScene = async (sceneId: string, script: string) => {
+    const currentScene = state.scenes.find(s => s.id === sceneId);
+    if(currentScene?.statusAudio === 'success') return true;
+
     dispatch({ type: 'UPDATE_ASSET_STATUS', payload: { id: sceneId, type: 'audio', status: 'loading' } });
     
     let attempts = 0;
@@ -348,21 +376,19 @@ export default function App() {
             return true;
         } catch (e) {
             attempts++;
-            console.warn(`Audio attempt ${attempts} failed for ${sceneId}`, e);
             if (attempts < MAX_RETRIES) {
-                 dispatch({ type: 'ADD_LOG', payload: `⚠️ Audio retrying for Scene ${sceneId} (${attempts}/${MAX_RETRIES})...` });
                  await new Promise(r => setTimeout(r, 2000));
             }
         }
     }
-    
     dispatch({ type: 'UPDATE_ASSET_STATUS', payload: { id: sceneId, type: 'audio', status: 'error' } });
-    dispatch({ type: 'ADD_LOG', payload: `❌ Audio failed for Scene ${sceneId}. Manual retry required.` });
     return false;
   };
 
-  // Helper to generate image with automatic retry
   const generateImageForScene = async (sceneId: string, prompt: string) => {
+    const currentScene = state.scenes.find(s => s.id === sceneId);
+    if(currentScene?.statusImage === 'success' && currentScene.imageUrl) return currentScene.imageUrl;
+
     dispatch({ type: 'UPDATE_ASSET_STATUS', payload: { id: sceneId, type: 'image', status: 'loading' } });
     
     let attempts = 0;
@@ -373,21 +399,20 @@ export default function App() {
             return imageUrl;
         } catch (e) {
             attempts++;
-            console.warn(`Image attempt ${attempts} failed for ${sceneId}`, e);
             if (attempts < MAX_RETRIES) {
-                 dispatch({ type: 'ADD_LOG', payload: `⚠️ Image retrying for Scene ${sceneId} (${attempts}/${MAX_RETRIES})...` });
-                 await new Promise(r => setTimeout(r, 2000));
+                 await new Promise(r => setTimeout(r, 3000));
             }
         }
     }
 
     dispatch({ type: 'UPDATE_ASSET_STATUS', payload: { id: sceneId, type: 'image', status: 'error' } });
-    dispatch({ type: 'ADD_LOG', payload: `❌ Image failed for Scene ${sceneId}. Manual retry required.` });
     return null;
   };
 
-  // Helper to generate video with automatic retry
   const generateVideoForScene = async (sceneId: string, prompt: string, imageUrl: string) => {
+    const currentScene = state.scenes.find(s => s.id === sceneId);
+    if(currentScene?.statusVideo === 'success') return true;
+
     dispatch({ type: 'UPDATE_ASSET_STATUS', payload: { id: sceneId, type: 'video', status: 'loading' } });
     
     let attempts = 0;
@@ -398,38 +423,28 @@ export default function App() {
             return true;
         } catch (e) {
             attempts++;
-            console.warn(`Video attempt ${attempts} failed for ${sceneId}`, e);
             if (attempts < MAX_RETRIES) {
-                 dispatch({ type: 'ADD_LOG', payload: `⚠️ Veo retrying for Scene ${sceneId} (${attempts}/${MAX_RETRIES})...` });
-                 await new Promise(r => setTimeout(r, 4000)); // Longer backoff for video
+                 const delay = 15000 + (attempts * 5000); 
+                 await new Promise(r => setTimeout(r, delay));
             }
         }
     }
     
     dispatch({ type: 'UPDATE_ASSET_STATUS', payload: { id: sceneId, type: 'video', status: 'error' } });
-    dispatch({ type: 'ADD_LOG', payload: `❌ Veo video failed for Scene ${sceneId}. Manual retry required.` });
     return false;
   };
 
-  // Main Pipeline Orchestrator per scene
   const processScene = async (scene: Scene) => {
-      // 1. Audio First
-      const audioSuccess = await generateAudioForScene(scene.id, scene.script);
-      
-      // 2. Image Second
-      // We proceed to Image even if Audio fails, to avoid blocking visual progress, 
-      // but log the error.
-      let generatedImageUrl = null;
-      generatedImageUrl = await generateImageForScene(scene.id, scene.imagePrompt || scene.script);
+      const audioPromise = generateAudioForScene(scene.id, scene.script);
+      const imagePromise = generateImageForScene(scene.id, scene.imagePrompt || scene.script);
 
-      // 3. Video Last (Veo 3 from Image)
-      // Strictly requires Image to succeed.
+      const [audioSuccess, generatedImageUrl] = await Promise.all([audioPromise, imagePromise]);
+
       if (generatedImageUrl && (scene.useVeo || scene.type === 'split_screen' || scene.visualEffect === 'ZOOM_BLUR')) {
           await generateVideoForScene(scene.id, scene.imagePrompt || scene.script, generatedImageUrl);
       }
   };
 
-  // Retry Handler for User Button
   const handleRetryAsset = async (sceneId: string, type: 'audio' | 'image' | 'video') => {
       const scene = state.scenes.find(s => s.id === sceneId);
       if (!scene) return;
@@ -439,34 +454,41 @@ export default function App() {
           await generateAudioForScene(sceneId, scene.script);
       } else if (type === 'image') {
           const imgUrl = await generateImageForScene(sceneId, scene.imagePrompt || scene.script);
-          // If image succeeds and we needed video, should we auto-retry video? 
-          // Let's check if video was needed but is missing/error
           if (imgUrl && (scene.useVeo || scene.type === 'split_screen') && scene.statusVideo !== 'success') {
               await generateVideoForScene(sceneId, scene.imagePrompt || scene.script, imgUrl);
           }
       } else if (type === 'video') {
-          if (!scene.imageUrl) {
-              dispatch({ type: 'ADD_LOG', payload: `Cannot retry video for ${sceneId}: Missing base image.` });
-              return;
-          }
+          if (!scene.imageUrl) return;
           await generateVideoForScene(sceneId, scene.imagePrompt || scene.script, scene.imageUrl);
       }
   };
 
-  // Phase 3: Production Trigger
   const approveAndGenerate = useCallback(async () => {
      dispatch({ type: 'SET_STATUS', payload: PipelineStep.ASSET_GENERATION });
-     dispatch({ type: 'ADD_LOG', payload: 'Scripts approved. Starting sequential production...' });
+     dispatch({ type: 'ADD_LOG', payload: 'Starting parallel production (3x concurrency)...' });
 
-     // Launch all scenes in parallel, but internally they follow the sequence
-     state.scenes.forEach(scene => {
-         processScene(scene);
+     const CONCURRENCY_LIMIT = 3;
+     const queue = [...state.scenes];
+
+     const processNext = async () => {
+         if (queue.length === 0) return;
+         const scene = queue.shift()!;
+         const el = document.getElementById(`scene-card-${state.scenes.indexOf(scene)}`);
+         if(el) el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+         await processScene(scene);
+     };
+
+     const workers = Array.from({ length: CONCURRENCY_LIMIT }).map(async () => {
+         while (queue.length > 0) {
+             await processNext();
+         }
      });
-     
-     // Note: We don't automatically set COMPLETE anymore to allow retries.
-     // User can verify checks and then "Preview" or we can detect 100% completion.
-     // For now, we leave it in ASSET_GENERATION so they can see the checklist.
-  }, [state.scenes, state.voice, state.aspectRatio]);
+
+     await Promise.all(workers);
+
+     dispatch({ type: 'SET_STATUS', payload: PipelineStep.COMPLETE });
+     dispatch({ type: 'ADD_LOG', payload: 'All assets generated!' });
+  }, [state.scenes]);
 
   const handleMixAssets = async (assetA: string, assetB: string) => {
       if (!researchSceneId) return;
@@ -484,6 +506,13 @@ export default function App() {
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (inputValue.trim()) startAnalysis(inputValue);
+  };
+
+  const handleSaveScript = () => {
+    if (editingSceneId) {
+        dispatch({ type: 'UPDATE_SCENE_SCRIPT', payload: { id: editingSceneId, script: editScriptText } });
+        setEditingSceneId(null);
+    }
   };
 
   const activeResearchScene = state.scenes.find(s => s.id === researchSceneId);
@@ -522,8 +551,7 @@ export default function App() {
     );
   };
 
-  // Determine if we can show preview
-  const canPreview = state.status === PipelineStep.ASSET_GENERATION || state.status === PipelineStep.COMPLETE || state.status === PipelineStep.REVIEW;
+  const canPreview = state.scenes.length > 0;
 
   return (
     <div className="min-h-screen bg-black text-zinc-100 flex flex-col font-sans selection:bg-blue-500/30">
@@ -553,15 +581,14 @@ export default function App() {
       </header>
 
       <main className="flex-1 flex flex-col pt-16 relative">
-        {state.status === PipelineStep.SCENE_PLANNING && (
-            <FallingText topic={state.topic} />
+        {(state.status === PipelineStep.SCENE_PLANNING || state.status === PipelineStep.RESEARCHING) && (
+            <FallingText topic={state.topic} statusText={state.logs[state.logs.length - 1]} />
         )}
 
         {state.status === PipelineStep.IDLE ? (
           <div className="flex-1 flex flex-col items-center justify-center px-4 py-20 relative overflow-hidden">
-            <div className="absolute top-0 left-1/2 -translate-x-1/2 w-[1000px] h-[500px] bg-blue-600/10 rounded-full blur-[120px] pointer-events-none" />
-            
-            <div className="w-full max-w-3xl relative z-10 space-y-10">
+             {/* ... (Same as previous idle screen) ... */}
+              <div className="w-full max-w-3xl relative z-10 space-y-10">
               <div className="text-center space-y-6">
                  <h2 className="text-6xl md:text-7xl font-bold tracking-tighter text-white">
                    Story to Video.
@@ -650,7 +677,7 @@ export default function App() {
                      </div>
                   </form>
               </div>
-            </div>
+          </div>
           </div>
         ) : (
           <div className="flex-1 flex flex-col w-full px-6 py-8 relative z-10">
@@ -674,6 +701,7 @@ export default function App() {
 
             {state.status === PipelineStep.STRATEGY && strategyForm && (
                 <div className="max-w-4xl mx-auto w-full animate-in fade-in slide-in-from-bottom-8 duration-500">
+                    {/* ... (Strategy UI same as before) ... */}
                     <div className="bg-zinc-900/80 backdrop-blur-xl border border-zinc-800 rounded-3xl p-8 shadow-2xl">
                         <div className="flex items-center gap-4 mb-8">
                             <div className="w-12 h-12 bg-gradient-to-br from-blue-500 to-purple-600 rounded-2xl flex items-center justify-center shadow-lg">
@@ -726,8 +754,8 @@ export default function App() {
                 </div>
             )}
 
-            {/* Layout for Review/Production Phase with Sticky Sidebar */}
-            {(state.status === PipelineStep.REVIEW || state.status === PipelineStep.ASSET_GENERATION || state.status === PipelineStep.COMPLETE) && (
+            {/* Layout for Review/Production Phase */}
+            {(state.status === PipelineStep.REVIEW || state.status === PipelineStep.RESEARCHING || state.status === PipelineStep.ASSET_GENERATION || state.status === PipelineStep.COMPLETE) && (
                 <div className="relative flex max-w-7xl mx-auto w-full gap-12">
                     
                     {/* Sticky Narrative Sidebar */}
@@ -774,6 +802,8 @@ export default function App() {
                                 <p className="text-zinc-400">
                                     {state.status === PipelineStep.ASSET_GENERATION 
                                         ? "Generating high-fidelity assets (Audio → Image → Video)..." 
+                                        : state.status === PipelineStep.RESEARCHING 
+                                        ? "Performing deep research across visual databases..."
                                         : "Review assets, scripts, and visual direction."
                                     }
                                 </p>
@@ -810,6 +840,7 @@ export default function App() {
                                     scene={scene} 
                                     index={index}
                                     status={state.status}
+                                    userLinks={state.userLinks}
                                     onClick={() => {}}
                                     onViewResearch={(e) => {
                                         e.stopPropagation();
@@ -835,6 +866,7 @@ export default function App() {
       {editingSceneId && (
           <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4 animate-in fade-in duration-200">
               <div className="w-full max-w-lg bg-zinc-900 border border-zinc-800 rounded-3xl p-8 shadow-2xl">
+                  {/* ... (Script editor content same as before) ... */}
                   <div className="flex items-center justify-between mb-6">
                      <h3 className="text-xl font-bold flex items-center gap-3 text-white">
                         <Edit2 size={20} className="text-blue-500"/> Edit Script

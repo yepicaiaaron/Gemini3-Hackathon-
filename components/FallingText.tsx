@@ -1,7 +1,9 @@
+
 import React, { useEffect, useState, useRef } from 'react';
 
 interface FallingTextProps {
   topic: string;
+  statusText?: string;
 }
 
 const CONCEPTS = [
@@ -21,7 +23,7 @@ interface Drop {
   scale: number;
 }
 
-export const FallingText: React.FC<FallingTextProps> = ({ topic }) => {
+export const FallingText: React.FC<FallingTextProps> = ({ topic, statusText }) => {
   const [drops, setDrops] = useState<Drop[]>([]);
   const containerRef = useRef<HTMLDivElement>(null);
   const requestRef = useRef<number>(0);
@@ -81,7 +83,14 @@ export const FallingText: React.FC<FallingTextProps> = ({ topic }) => {
       <div className="absolute inset-0 flex items-center justify-center z-10 pointer-events-none">
           <div className="text-center space-y-4">
               <h2 className="text-4xl font-bold text-white animate-pulse tracking-tight">Constructing Narrative...</h2>
-              <p className="text-zinc-500 font-mono text-sm uppercase tracking-widest">Synthesizing "{topic}"</p>
+              <div className="flex flex-col items-center gap-2">
+                  <p className="text-zinc-500 font-mono text-sm uppercase tracking-widest">Synthesizing "{topic}"</p>
+                  {statusText && (
+                      <p className="text-blue-400 font-mono text-xs uppercase tracking-widest bg-blue-500/10 px-3 py-1 rounded-full animate-fade-in">
+                          {statusText}
+                      </p>
+                  )}
+              </div>
           </div>
       </div>
     </div>
