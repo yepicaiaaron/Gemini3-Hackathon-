@@ -54,11 +54,13 @@ export type AssetStatus = 'idle' | 'loading' | 'success' | 'error';
 export interface AssetRecord {
   id: string; // UUID
   originalUrl: string;
-  proxyUrl: string; // The "Saved Copy" that is guaranteed to render
-  type: 'image' | 'video' | 'text';
+  proxyUrl: string; // The "Saved Copy" (Blob URL) viewable in app
+  storagePath: string; // Simulated gs:// path
+  type: 'image' | 'video' | 'source'; // 'source' = text/webpage/document
   title: string;
   sourceDomain: string;
   timestamp: number;
+  isCached: boolean; // TRUE if the binary data is actually in our local DB
 }
 
 export interface Scene {

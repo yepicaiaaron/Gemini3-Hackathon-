@@ -70,7 +70,7 @@ export const analyzeRequest = async (input: string): Promise<VideoStrategy> => {
     const response = await ai.models.generateContent({
       model: TEXT_MODEL,
       contents: prompt,
-      config: { temperature: 0.1, tools: [{ googleSearch: {} }] }
+      config: { temperature: 0.7, tools: [{ googleSearch: {} }] }
     });
     return cleanAndParseJSON(response.text!) as VideoStrategy;
   });
@@ -89,7 +89,7 @@ export const generateNarrative = async (topic: string, hookStyle: HookStyle, str
     const response = await ai.models.generateContent({
       model: TEXT_MODEL,
       contents: prompt,
-      config: { temperature: 0.2, responseMimeType: "application/json" }
+      config: { temperature: 0.7, responseMimeType: "application/json" }
     });
     return cleanAndParseJSON(response.text!) as NarrativeBeat[];
   });
@@ -98,22 +98,19 @@ export const generateNarrative = async (topic: string, hookStyle: HookStyle, str
 export const planScenes = async (beats: NarrativeBeat[], aspectRatio: AspectRatio, userLinks: string[], strategy?: VideoStrategy, hookStyle?: HookStyle): Promise<Scene[]> => {
   const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
   
-  // CHANGED: Persona is now a technical database to prevent "creative" glitch text
   const prompt = `
-    You are a Technical Video Database System.
-    Your task is to convert narrative beats into structured scene metadata.
+    You are an Expert Documentary Director.
+    Convert these narrative beats into a visual storyboard.
     
     INPUT DATA:
     - Beats: ${JSON.stringify(beats)}
     - Strategy: ${JSON.stringify(strategy)}
     - User Assets: ${JSON.stringify(userLinks)}
     
-    STRICT OUTPUT RULES:
-    1. Language: Standard Professional English ONLY.
-    2. Grammar: Must be perfect. No typos. No stuttering.
-    3. Formatting: JSON Array only.
-    4. PROHIBITED: Do not use "glitch" text, Zalgo text, repeated characters (e.g. "ssccene"), or "AI roleplay" gibberish.
-    5. The "reasoning" field must be a clear, boring explanation of the visual choice.
+    INSTRUCTIONS:
+    1. Write in natural, fluid English.
+    2. The "reasoning" should briefly explain *why* this visual works for the story.
+    3. JSON output only.
 
     OUTPUT SCHEMA:
     {
@@ -125,7 +122,7 @@ export const planScenes = async (beats: NarrativeBeat[], aspectRatio: AspectRati
       "script": "string",
       "visualEffect": "string",
       "effectReasoning": "string",
-      "reasoning": "string (Standard English Only)",
+      "reasoning": "string",
       "imagePrompt": "string",
       "useVeo": boolean
     }
@@ -137,9 +134,7 @@ export const planScenes = async (beats: NarrativeBeat[], aspectRatio: AspectRati
         contents: prompt,
         config: { 
             responseMimeType: "application/json", 
-            temperature: 0.4, // Increased to 0.4 to prevent low-temp character stutter/loops
-            topK: 40,
-            topP: 0.95
+            temperature: 0.7,
         }
     });
     const scenes = cleanAndParseJSON(response.text!) as Scene[];
@@ -159,15 +154,15 @@ export const researchScene = async (scene: Scene): Promise<AssetRecord[]> => {
     const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
     
     const prompt = `
-      Deep Visual Research Task.
-      Script: "${scene.script}"
-      Visual Plan: "${scene.primaryVisual}"
-      Needs: "${scene.visualResearchPlan}"
+      You are a Visual Researcher.
+      Find concrete visual evidence for this scene:
       
-      FIND:
-      1. 3x High-quality IMAGES (photos/diagrams).
-      2. 2x Relevant VIDEOS (youtube/news).
-      3. 2x Articles.
+      Scene Script: "${scene.script}"
+      Visual Plan: "${scene.primaryVisual}"
+      
+      TASK:
+      Find 4-6 distinct URLs (images, articles, videos) that ground this scene in reality.
+      Focus on primary sources, archives, and high-quality references.
     `;
   
     return withRetry(async () => {
@@ -179,17 +174,29 @@ export const researchScene = async (scene: Scene): Promise<AssetRecord[]> => {
           });
   
           const chunks = (response.candidates?.[0]?.groundingMetadata?.groundingChunks || []) as GroundingChunk[];
-          const ingestedAssets: AssetRecord[] = [];
           
-          chunks.forEach(chunk => {
-             if (!chunk.web?.uri) return;
-             const record = AssetDb.ingest(chunk.web.uri, chunk.web.title);
-             ingestedAssets.push(record);
+          // Use parallel ingestion with robust error handling for each item
+          const assetPromises = chunks.map(async (chunk) => {
+             try {
+                 if (!chunk.web?.uri) return null;
+                 const uri = chunk.web.uri;
+                 
+                 // Basic filter for useless tracking URLs
+                 if (uri.includes('vertexaisearch')) return null;
+
+                 return await AssetDb.ingest(uri, chunk.web.title);
+             } catch (innerError) {
+                 console.warn("Failed to ingest individual asset:", chunk.web?.uri, innerError);
+                 return null;
+             }
           });
-  
-          return ingestedAssets;
+          
+          const results = await Promise.all(assetPromises);
+          return results.filter(r => r !== null) as AssetRecord[];
+
       } catch (error) {
           console.error("Deep Research Error:", error);
+          // Return empty if the whole batch failed, but don't crash the app
           return []; 
       }
     });

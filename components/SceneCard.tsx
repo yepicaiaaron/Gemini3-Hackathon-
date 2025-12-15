@@ -1,7 +1,7 @@
 
 import React, { useEffect, useState } from 'react';
 import { Scene, PipelineStep, AssetStatus } from '../types';
-import { Clock, Film, Move, Search, Cpu, Edit2, PlayCircle, Mic, Image as ImageIcon, Video as VideoIcon, AlertTriangle, Trophy, BrainCircuit, CheckCircle2, Loader2, XCircle, RefreshCw, Layers } from 'lucide-react';
+import { Clock, Film, Move, Search, Cpu, Edit2, PlayCircle, Mic, Image as ImageIcon, Video as VideoIcon, AlertTriangle, Trophy, BrainCircuit, CheckCircle2, Loader2, XCircle, RefreshCw, Layers, Terminal, FileText } from 'lucide-react';
 
 interface SceneCardProps {
   scene: Scene;
@@ -29,6 +29,37 @@ const Typewriter = ({ text, delay = 10 }: { text: string, delay?: number }) => {
         return () => clearInterval(timer);
     }, [text, delay]);
     return <span>{displayedText}</span>;
+};
+
+// New Component: Simulates live agent activity log
+const LiveAgentLog = () => {
+    const [log, setLog] = useState("Initializing research agent...");
+    
+    useEffect(() => {
+        const logs = [
+            "Scanning archival databases...",
+            "Cross-referencing visual motifs...",
+            "Identifying primary sources...",
+            "Fetching metadata from source...",
+            "Analyzing image composition...",
+            "Verifying historical accuracy...",
+            "Synthesizing visual plan...",
+            "Querying knowledge graph..."
+        ];
+        let i = 0;
+        const interval = setInterval(() => {
+            setLog(logs[i % logs.length]);
+            i++;
+        }, 1200);
+        return () => clearInterval(interval);
+    }, []);
+
+    return (
+        <div className="font-mono text-xs text-blue-400 flex items-center gap-2">
+            <span className="w-2 h-2 bg-blue-500 rounded-full animate-pulse" />
+            {log}
+        </div>
+    );
 };
 
 const StatusRow = ({ label, status, onRetry, icon }: { label: string, status: AssetStatus, onRetry: () => void, icon: React.ReactNode }) => {
@@ -61,7 +92,7 @@ export const SceneCard: React.FC<SceneCardProps> = ({ scene, index, status, onCl
   const isResearching = scene.isResearching;
   
   const assets = scene.assets || [];
-  const researchScore = (assets.filter(a => a.type === 'text').length * 0.5) + (assets.filter(a => a.type === 'image').length * 1) + (assets.filter(a => a.type === 'video').length * 2);
+  const researchScore = (assets.filter(a => a.type === 'source').length * 0.5) + (assets.filter(a => a.type === 'image').length * 1) + (assets.filter(a => a.type === 'video').length * 2);
   const isLowIntel = researchScore < 2;
 
   const needsVideo = scene.useVeo || scene.type === 'split_screen' || scene.visualEffect === 'ZOOM_BLUR';
@@ -124,9 +155,13 @@ export const SceneCard: React.FC<SceneCardProps> = ({ scene, index, status, onCl
                   <div className="flex items-center gap-2 mb-2 text-blue-400 text-xs font-bold uppercase tracking-wider">
                       <BrainCircuit size={14} /> Agent Reasoning
                   </div>
-                  <p className="text-sm text-zinc-300 font-mono leading-relaxed opacity-90 min-h-[3em]">
-                      {scene.reasoning ? <Typewriter text={scene.reasoning} /> : <span className="text-zinc-600">Analyzing narrative requirements...</span>}
-                  </p>
+                  <div className="text-sm text-zinc-300 font-mono leading-relaxed opacity-90 min-h-[3em]">
+                      {isResearching ? (
+                          <LiveAgentLog />
+                      ) : (
+                          scene.reasoning ? <Typewriter text={scene.reasoning} /> : <span className="text-zinc-600">Analyzing narrative requirements...</span>
+                      )}
+                  </div>
               </div>
           </div>
 
@@ -194,8 +229,10 @@ export const SceneCard: React.FC<SceneCardProps> = ({ scene, index, status, onCl
                                             src={asset.proxyUrl} 
                                             className="w-full h-full object-cover opacity-70 group-hover/asset:opacity-100 transition-opacity" 
                                             onError={(e) => {
+                                                // Fallback to favicon immediately on error
                                                 e.currentTarget.style.display = 'none';
                                                 e.currentTarget.parentElement?.querySelector('.fallback')?.classList.remove('hidden');
+                                                e.currentTarget.parentElement?.querySelector('.fallback')?.classList.add('flex');
                                             }}
                                           />
                                       ) : asset.type === 'video' ? (
@@ -204,20 +241,21 @@ export const SceneCard: React.FC<SceneCardProps> = ({ scene, index, status, onCl
                                           </div>
                                       ) : (
                                           <div className="w-full h-full bg-zinc-950 flex items-center justify-center relative">
-                                              <img 
-                                                  src={`https://www.google.com/s2/favicons?domain=${asset.sourceDomain}&sz=64`} 
-                                                  className="w-6 h-6 opacity-60 grayscale group-hover/asset:grayscale-0 group-hover/asset:opacity-100 transition-all"
-                                              />
+                                              {/* Source Card Mini View */}
+                                              <FileText size={16} className="text-zinc-700" />
+                                              <span className="text-[6px] text-zinc-600 font-mono mt-1 px-1 truncate w-full text-center">{asset.sourceDomain}</span>
                                           </div>
                                       )}
                                       
-                                      <div className="fallback hidden absolute inset-0 bg-zinc-900 flex items-center justify-center">
-                                          <div className="w-full h-full border-2 border-dashed border-zinc-800 flex items-center justify-center">
-                                            <AlertTriangle size={10} className="text-zinc-700" />
-                                          </div>
+                                      {/* Fallback View (Favicon) */}
+                                      <div className="fallback hidden absolute inset-0 bg-zinc-950 items-center justify-center">
+                                          <img 
+                                              src={`https://www.google.com/s2/favicons?domain=${asset.sourceDomain}&sz=64`} 
+                                              className="w-6 h-6 opacity-60 grayscale group-hover/asset:grayscale-0 group-hover/asset:opacity-100 transition-all"
+                                          />
                                       </div>
 
-                                      <div className={`absolute bottom-0 right-0 p-0.5 rounded-tl bg-black/90 border-t border-l border-zinc-800 text-[8px] font-bold z-10 ${asset.type === 'video' ? 'text-purple-400' : asset.type === 'image' ? 'text-green-400' : 'text-blue-400'}`}>
+                                      <div className={`absolute bottom-0 right-0 p-0.5 rounded-tl bg-black/90 border-t border-l border-zinc-800 text-[8px] font-bold z-10 ${asset.type === 'video' ? 'text-purple-400' : asset.type === 'image' ? 'text-green-400' : 'text-zinc-500'}`}>
                                           {asset.type === 'video' ? '+2.0' : asset.type === 'image' ? '+1.0' : '+0.5'}
                                       </div>
                                   </div>
