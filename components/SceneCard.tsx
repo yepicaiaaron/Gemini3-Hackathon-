@@ -1,7 +1,7 @@
 
 import React, { useEffect, useState } from 'react';
 import { Scene, PipelineStep, AssetStatus } from '../types';
-import { Clock, Film, Move, Search, Cpu, Edit2, PlayCircle, Mic, Image as ImageIcon, Video as VideoIcon, AlertTriangle, Trophy, BrainCircuit, CheckCircle2, Loader2, XCircle, RefreshCw, Layers, Terminal, FileText } from 'lucide-react';
+import { Clock, Film, Move, Search, Cpu, Edit2, PlayCircle, Mic, Image as ImageIcon, Video as VideoIcon, AlertTriangle, Trophy, BrainCircuit, CheckCircle2, Loader2, XCircle, RefreshCw, Layers, Terminal, FileText, ExternalLink } from 'lucide-react';
 
 interface SceneCardProps {
   scene: Scene;
@@ -248,11 +248,12 @@ export const SceneCard: React.FC<SceneCardProps> = ({ scene, index, status, onCl
                                       )}
                                       
                                       {/* Fallback View (Favicon) */}
-                                      <div className="fallback hidden absolute inset-0 bg-zinc-950 items-center justify-center">
+                                      <div className="fallback hidden absolute inset-0 bg-zinc-950 items-center justify-center flex-col gap-1 p-1">
                                           <img 
                                               src={`https://www.google.com/s2/favicons?domain=${asset.sourceDomain}&sz=64`} 
-                                              className="w-6 h-6 opacity-60 grayscale group-hover/asset:grayscale-0 group-hover/asset:opacity-100 transition-all"
+                                              className="w-4 h-4 opacity-80"
                                           />
+                                          <a href={asset.originalUrl} target="_blank" rel="noreferrer" className="text-[6px] text-blue-400 underline" onClick={e => e.stopPropagation()}>Link</a>
                                       </div>
 
                                       <div className={`absolute bottom-0 right-0 p-0.5 rounded-tl bg-black/90 border-t border-l border-zinc-800 text-[8px] font-bold z-10 ${asset.type === 'video' ? 'text-purple-400' : asset.type === 'image' ? 'text-green-400' : 'text-zinc-500'}`}>

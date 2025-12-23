@@ -7,10 +7,10 @@ interface FallingTextProps {
 }
 
 const CONCEPTS = [
-  "Visual Metaphor", "Color Theory", "Pacing", "Narrative Arc", "Emotional Hook",
-  "Dynamic Lighting", "Composition", "Sound Design", "Motion Graphics", "Typography",
-  "Cinematography", "Texture", "Depth of Field", "Contrast", "Rhythm",
-  "Storytelling", "Audience Engagement", "Data Visualization", "Abstract Imagery", "Realism"
+  "Casting Narrative Arc", "Analyzing Data Points", "Visual Synthesis", "Tone Calibration", "Dramatic Tension",
+  "Spatial Composition", "Audio Engineering", "Temporal Mapping", "Directorial Reasoning", "Style Consistency",
+  "Researching Archives", "Cross-Referencing", "Agent Communication", "Heuristic Planning", "Visual Metaphors",
+  "Deep Intel Gathering", "Scene Logic", "Motion Intent", "Narrative Cohesion", "Cinematic Quality"
 ];
 
 interface Drop {
@@ -25,18 +25,17 @@ interface Drop {
 
 export const FallingText: React.FC<FallingTextProps> = ({ topic, statusText }) => {
   const [drops, setDrops] = useState<Drop[]>([]);
-  const containerRef = useRef<HTMLDivElement>(null);
   const requestRef = useRef<number>(0);
 
   useEffect(() => {
-    const initDrops = Array.from({ length: 30 }).map((_, i) => ({
+    const initDrops = Array.from({ length: 25 }).map((_, i) => ({
       id: i,
       text: CONCEPTS[Math.floor(Math.random() * CONCEPTS.length)],
       x: Math.random() * 100, // vw
       y: Math.random() * 100 - 100, // start above
-      speed: 0.2 + Math.random() * 0.5,
-      opacity: 0.1 + Math.random() * 0.5,
-      scale: 0.8 + Math.random() * 0.5
+      speed: 0.15 + Math.random() * 0.4,
+      opacity: 0.1 + Math.random() * 0.3,
+      scale: 0.7 + Math.random() * 0.4
     }));
     setDrops(initDrops);
 
@@ -47,7 +46,7 @@ export const FallingText: React.FC<FallingTextProps> = ({ topic, statusText }) =
         
         if (newY > 110) {
           newY = -20;
-          newOpacity = 0.1 + Math.random() * 0.5;
+          newOpacity = 0.1 + Math.random() * 0.3;
         }
 
         return { ...drop, y: newY, opacity: newOpacity };
@@ -60,34 +59,36 @@ export const FallingText: React.FC<FallingTextProps> = ({ topic, statusText }) =
   }, []);
 
   return (
-    <div ref={containerRef} className="absolute inset-0 z-0 overflow-hidden pointer-events-none">
-      <div className="absolute inset-0 bg-gradient-to-b from-black via-zinc-950/80 to-black z-0" />
+    <div className="absolute inset-0 z-0 overflow-hidden pointer-events-none">
+      <div className="absolute inset-0 bg-gradient-to-b from-black via-zinc-950/90 to-black z-0" />
       {drops.map(drop => (
         <div
           key={drop.id}
-          className="absolute transform -translate-x-1/2 transition-all duration-300 ease-out cursor-default pointer-events-auto hover:text-blue-400 hover:scale-150 hover:opacity-100 hover:z-50 hover:shadow-[0_0_15px_rgba(59,130,246,0.8)]"
+          className="absolute transform -translate-x-1/2 font-mono font-bold whitespace-nowrap"
           style={{
             left: `${drop.x}%`,
             top: `${drop.y}%`,
             opacity: drop.opacity,
             fontSize: `${drop.scale}rem`,
-            color: '#52525b', // zinc-600
-            fontFamily: '"JetBrains Mono", monospace',
-            fontWeight: 'bold',
-            textShadow: '0 0 5px rgba(0,0,0,0.5)'
+            color: '#3f3f46', // zinc-700
+            textShadow: '0 0 5px rgba(0,0,0,0.8)'
           }}
         >
           {drop.text}
         </div>
       ))}
-      <div className="absolute inset-0 flex items-center justify-center z-10 pointer-events-none">
-          <div className="text-center space-y-4">
-              <h2 className="text-4xl font-bold text-white animate-pulse tracking-tight">Constructing Narrative...</h2>
-              <div className="flex flex-col items-center gap-2">
-                  <p className="text-zinc-500 font-mono text-sm uppercase tracking-widest">Synthesizing "{topic}"</p>
+      <div className="absolute inset-0 flex items-center justify-center z-10">
+          <div className="text-center space-y-6 max-w-2xl px-6">
+              <div className="inline-flex items-center gap-3 px-4 py-2 bg-blue-500/10 border border-blue-500/20 rounded-full">
+                  <span className="w-2 h-2 bg-blue-500 rounded-full animate-ping" />
+                  <span className="text-blue-400 font-mono text-xs font-bold uppercase tracking-widest">Active Neural Link</span>
+              </div>
+              <h2 className="text-5xl md:text-6xl font-black text-white tracking-tighter">Constructing Video...</h2>
+              <div className="flex flex-col items-center gap-4">
+                  <p className="text-zinc-500 font-mono text-sm uppercase tracking-widest border-b border-zinc-800 pb-2">Synthesizing Intel: {topic}</p>
                   {statusText && (
-                      <p className="text-blue-400 font-mono text-xs uppercase tracking-widest bg-blue-500/10 px-3 py-1 rounded-full animate-fade-in">
-                          {statusText}
+                      <p className="text-zinc-200 font-serif text-lg italic animate-in fade-in slide-in-from-bottom-2 duration-700">
+                          "{statusText}"
                       </p>
                   )}
               </div>

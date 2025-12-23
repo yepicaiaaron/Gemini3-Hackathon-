@@ -38,7 +38,8 @@ class AssetDatabaseService {
             try {
                 // Use wsrv.nl as a CORS-friendly caching proxy
                 // We fetch the PROXY url, get the blob, and store it LOCALLY.
-                const response = await fetch(fetchUrl);
+                // 'credentials': 'omit' is important for some CORS configurations
+                const response = await fetch(fetchUrl, { credentials: 'omit' });
                 if (response.ok) {
                     const blob = await response.blob();
                     // Create a local object URL (served from App Memory)
@@ -47,7 +48,7 @@ class AssetDatabaseService {
                 } else {
                      // If download fails (e.g. 404, 429), fall back to the proxy URL directly
                      // This prevents using the raw CORS-blocked URL
-                     console.warn(`AssetDb: Failed to download blob for ${url}, using proxy link.`);
+                     console.warn(`AssetDb: Failed to download blob for ${url} (Status: ${response.status}). Using proxy link.`);
                      proxyUrl = fetchUrl;
                 }
             } catch (e) {

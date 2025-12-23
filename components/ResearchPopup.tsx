@@ -1,3 +1,4 @@
+
 import React, { useState } from 'react';
 import { X, Search, ExternalLink, Image as ImageIcon, LayoutDashboard, Video, FileText, AlertTriangle, CheckCircle, Clock, Blend, Loader2, Eye, Database, HardDrive, Link as LinkIcon, File, DownloadCloud, Wifi } from 'lucide-react';
 import { Scene, AssetRecord } from '../types';
@@ -70,6 +71,7 @@ const AssetCard: React.FC<AssetCardProps> = ({
                            // If image fails, hide it and show it as a source card
                            e.currentTarget.style.display = 'none';
                            e.currentTarget.parentElement?.querySelector('.fallback-icon')?.classList.remove('hidden');
+                           e.currentTarget.parentElement?.querySelector('.fallback-icon')?.classList.add('flex');
                       }}
                   />
               ) : asset.type === 'video' ? (
@@ -89,9 +91,18 @@ const AssetCard: React.FC<AssetCardProps> = ({
               )}
               
               {/* Fallback Icon for broken images */}
-              <div className="fallback-icon hidden absolute inset-0 flex flex-col items-center justify-center bg-zinc-900">
+              <div className="fallback-icon hidden absolute inset-0 flex-col items-center justify-center bg-zinc-900 p-4 text-center">
                   <AlertTriangle size={20} className="text-amber-500 mb-1" />
-                  <span className="text-[10px] text-zinc-500">Preview Error</span>
+                  <span className="text-[10px] text-zinc-500 leading-tight mb-2">Could not load image directly due to restrictions.</span>
+                  <a 
+                      href={asset.originalUrl} 
+                      target="_blank" 
+                      rel="noreferrer" 
+                      className="text-[9px] text-blue-400 hover:text-blue-300 flex items-center gap-1 border border-blue-500/30 bg-blue-500/10 px-2 py-1 rounded"
+                      onClick={(e) => e.stopPropagation()}
+                  >
+                      Visit Site <ExternalLink size={8} />
+                  </a>
               </div>
           </div>
 
@@ -173,7 +184,25 @@ export const ResearchPopup: React.FC<ResearchPopupProps> = ({ scene, onClose, on
                   
                   <div className="flex-1 overflow-auto p-8 bg-black flex items-center justify-center">
                       {previewAsset.type === 'image' ? (
-                          <img src={previewAsset.proxyUrl} className="max-w-full max-h-[60vh] object-contain shadow-lg border border-zinc-800" />
+                          <div className="relative w-full h-full flex items-center justify-center">
+                            <img 
+                              src={previewAsset.proxyUrl} 
+                              className="max-w-full max-h-[60vh] object-contain shadow-lg border border-zinc-800" 
+                              onError={(e) => {
+                                  e.currentTarget.style.display = 'none';
+                                  e.currentTarget.parentElement?.querySelector('.full-fallback')?.classList.remove('hidden');
+                                  e.currentTarget.parentElement?.querySelector('.full-fallback')?.classList.add('flex');
+                              }}
+                            />
+                            <div className="full-fallback hidden flex-col items-center justify-center text-center">
+                                <AlertTriangle size={48} className="text-amber-500 mb-4" />
+                                <h3 className="text-xl font-bold text-white mb-2">Image Load Failed</h3>
+                                <p className="text-zinc-400 max-w-md mb-6">Could not load image directly due to CORS restrictions or source unavailability.</p>
+                                <a href={previewAsset.originalUrl} target="_blank" rel="noreferrer" className="px-6 py-3 bg-blue-600 hover:bg-blue-500 text-white font-bold rounded-lg transition-colors flex items-center gap-2">
+                                    Visit Original Source <ExternalLink size={16} />
+                                </a>
+                            </div>
+                          </div>
                       ) : (
                           <div className="text-center">
                               <div className="w-24 h-24 bg-zinc-900 rounded-2xl flex items-center justify-center mx-auto mb-6 border border-zinc-800">
