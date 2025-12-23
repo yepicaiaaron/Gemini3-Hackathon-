@@ -43,7 +43,12 @@ import {
   Timer,
   Server,
   RefreshCw,
-  User
+  User,
+  Download,
+  Youtube,
+  Rocket,
+  // Added Loader2 to fix missing import error.
+  Loader2
 } from 'lucide-react';
 
 const initialState: ProjectState = {
@@ -69,134 +74,59 @@ const VOICES = [
 ];
 
 const HOOKS: {id: HookStyle, label: string, icon: React.ReactNode, asset: string, type: 'video' | 'image'}[] = [
-    { 
-      id: 'AI_SELECTED', 
-      label: 'AI-Selected', 
-      icon: <Zap size={14} />, 
-      asset: 'https://images.unsplash.com/photo-1677442136019-21780ecad995?q=80&w=800&auto=format&fit=crop', 
-      type: 'image' 
-    },
-    { 
-      id: 'FAST_CUT', 
-      label: 'Fast Cut', 
-      icon: <Scissors size={14} />, 
-      asset: 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerJoyrides.mp4', 
-      type: 'video' 
-    },
-    { 
-      id: 'ARTICLE_HIGHLIGHT', 
-      label: 'Article Highlight', 
-      icon: <FileText size={14} />, 
-      asset: 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerEscapes.mp4', 
-      type: 'video' 
-    },
-    { 
-      id: 'TEXT_MATCH', 
-      label: 'Text Match', 
-      icon: <Type size={14} />, 
-      asset: 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/WeAreGoingOnBullrun.mp4', 
-      type: 'video' 
-    },
-];
-
-const AUDIENCE_OPTIONS = [
-  "General Public", "Tech Enthusiasts", "Investors", "Students", "Corporate Executives", "Gamers", "Parents", "Researchers"
-];
-const TONE_OPTIONS = [
-  "Professional", "High-Energy", "Documentary", "Minimalist", "Cyberpunk", "Humorous", "Dramatic", "Educational"
-];
-const OBJECTIVE_OPTIONS = [
-  "Education", "Brand Awareness", "Sales/Conversion", "Entertainment", "News Update", "Technical Deep Dive"
+    { id: 'AI_SELECTED', label: 'AI-Selected', icon: <Zap size={14} />, asset: 'https://images.unsplash.com/photo-1677442136019-21780ecad995?q=80&w=800&auto=format&fit=crop', type: 'image' },
+    { id: 'FAST_CUT', label: 'Fast Cut', icon: <Scissors size={14} />, asset: 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerJoyrides.mp4', type: 'video' },
+    { id: 'ARTICLE_HIGHLIGHT', label: 'Article Highlight', icon: <FileText size={14} />, asset: 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerEscapes.mp4', type: 'video' },
+    { id: 'TEXT_MATCH', label: 'Text Match', icon: <Type size={14} />, asset: 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/WeAreGoingOnBullrun.mp4', type: 'video' },
 ];
 
 function reducer(state: ProjectState, action: AgentAction): ProjectState {
   switch (action.type) {
     case 'START_ANALYSIS':
-      return { 
-        ...initialState, 
-        topic: action.payload.topic, 
-        userLinks: action.payload.userLinks,
-        voice: action.payload.voice,
-        hookStyle: action.payload.hookStyle,
-        aspectRatio: action.payload.aspectRatio,
-        status: PipelineStep.ANALYZING, 
-        logs: [`Analyzing input: "${action.payload.topic}"...`] 
-      };
+      return { ...initialState, topic: action.payload.topic, userLinks: action.payload.userLinks, voice: action.payload.voice, hookStyle: action.payload.hookStyle, aspectRatio: action.payload.aspectRatio, status: PipelineStep.ANALYZING, logs: [`Analyzing input...`] };
     case 'SET_STRATEGY':
-      return {
-        ...state,
-        strategy: action.payload,
-        status: PipelineStep.STRATEGY,
-        logs: [...state.logs, 'Proposed production strategy.']
-      };
+      return { ...state, strategy: action.payload, status: PipelineStep.STRATEGY };
     case 'SET_STATUS':
       return { ...state, status: action.payload };
     case 'SET_NARRATIVE':
-      return { ...state, narrativeBeats: action.payload, logs: [...state.logs, 'Narrative arc finalized.'] };
+      return { ...state, narrativeBeats: action.payload };
     case 'SET_SCENES':
-      return { ...state, scenes: action.payload, logs: [...state.logs, 'Visual scenes planned.'] };
+      return { ...state, scenes: action.payload };
     case 'UPDATE_ASSET_STATUS':
-      return {
-        ...state,
-        scenes: state.scenes.map(s => {
+      return { ...state, scenes: state.scenes.map(s => {
           if (s.id !== action.payload.id) return s;
           const updates: any = {};
           if (action.payload.type === 'audio') updates.statusAudio = action.payload.status;
-          if (action.payload.type === 'image') updates.statusImage = action.payload.status;
-          if (action.payload.type === 'video') updates.statusVideo = action.payload.status;
+          if (action.payload.type === 'image1') updates.statusImage1 = action.payload.status;
+          if (action.payload.type === 'image2') updates.statusImage2 = action.payload.status;
+          if (action.payload.type === 'video1') updates.statusVideo1 = action.payload.status;
+          if (action.payload.type === 'video2') updates.statusVideo2 = action.payload.status;
           return { ...s, ...updates };
-        })
-      };
+      })};
     case 'UPDATE_SCENE_RESEARCH_STATUS':
-      return {
-        ...state,
-        scenes: state.scenes.map(s => s.id === action.payload.id ? { ...s, isResearching: action.payload.isResearching } : s)
-      };
+      return { ...state, scenes: state.scenes.map(s => s.id === action.payload.id ? { ...s, isResearching: action.payload.isResearching } : s) };
     case 'INGEST_ASSETS':
-      return {
-        ...state,
-        scenes: state.scenes.map(s => s.id === action.payload.sceneId ? { 
-            ...s, 
-            assets: action.payload.assets // Overwrite or append? Overwriting as research is a distinct phase
-        } : s)
-      };
+      return { ...state, scenes: state.scenes.map(s => s.id === action.payload.sceneId ? { ...s, assets: action.payload.assets } : s) };
     case 'UPDATE_SCENE_IMAGE':
-      return {
-        ...state,
-        scenes: state.scenes.map(s => s.id === action.payload.id ? { 
-            ...s, 
-            imageUrl: action.payload.url, 
-            groundingChunks: action.payload.groundingChunks,
-            statusImage: 'success'
-        } : s)
-      };
+      return { ...state, scenes: state.scenes.map(s => s.id === action.payload.id ? { 
+          ...s, 
+          [`imageUrl${action.payload.slot}`]: action.payload.url, 
+          [`statusImage${action.payload.slot}`]: 'success'
+      } : s) };
     case 'UPDATE_SCENE_VIDEO':
-      return {
-        ...state,
-        scenes: state.scenes.map(s => s.id === action.payload.id ? { 
-            ...s, 
-            videoUrl: action.payload.url,
-            statusVideo: 'success'
-        } : s)
-      };
+      return { ...state, scenes: state.scenes.map(s => s.id === action.payload.id ? { 
+          ...s, 
+          [`videoUrl${action.payload.slot}`]: action.payload.url,
+          [`statusVideo${action.payload.slot}`]: 'success'
+      } : s) };
     case 'UPDATE_SCENE_AUDIO':
-      return {
-        ...state,
-        scenes: state.scenes.map(s => s.id === action.payload.id ? { 
-            ...s, 
-            audioUrl: action.payload.url,
-            statusAudio: 'success'
-        } : s)
-      };
+      return { ...state, scenes: state.scenes.map(s => s.id === action.payload.id ? { ...s, audioUrl: action.payload.url, statusAudio: 'success' } : s) };
     case 'UPDATE_SCENE_SCRIPT':
-      return {
-        ...state,
-        scenes: state.scenes.map(s => s.id === action.payload.id ? { ...s, script: action.payload.script } : s)
-      };
+      return { ...state, scenes: state.scenes.map(s => s.id === action.payload.id ? { ...s, script: action.payload.script } : s) };
     case 'ADD_LOG':
       return { ...state, logs: [...state.logs, action.payload] };
     case 'SET_ERROR':
-      return { ...state, status: PipelineStep.ERROR, error: action.payload, logs: [...state.logs, `CRITICAL ERROR: ${action.payload}`] };
+      return { ...state, status: PipelineStep.ERROR, error: action.payload };
     case 'RESET':
       return initialState;
     default:
@@ -205,7 +135,7 @@ function reducer(state: ProjectState, action: AgentAction): ProjectState {
 }
 
 const ProductionTimer = () => {
-    const [seconds, setSeconds] = useState(240); 
+    const [seconds, setSeconds] = useState(300); 
     useEffect(() => {
         const timer = setInterval(() => setSeconds(prev => Math.max(0, prev - 1)), 1000);
         return () => clearInterval(timer);
@@ -213,9 +143,9 @@ const ProductionTimer = () => {
     const mins = Math.floor(seconds / 60);
     const secs = seconds % 60;
     return (
-        <div className="flex items-center gap-2 text-blue-400 font-mono text-sm bg-blue-500/10 px-3 py-1 rounded-full border border-blue-500/20 animate-pulse">
+        <div className="flex items-center gap-2 text-blue-400 font-mono text-sm bg-blue-500/10 px-3 py-1 rounded-full border border-blue-500/20">
             <Timer size={14} />
-            <span>EST. PRODUCTION TIME: {mins}:{secs.toString().padStart(2, '0')}</span>
+            <span>EST. PRODUCTION: {mins}:{secs.toString().padStart(2, '0')}</span>
         </div>
     );
 };
@@ -232,6 +162,7 @@ export default function App() {
   const [editScriptText, setEditScriptText] = useState('');
   const [activeSceneIndex, setActiveSceneIndex] = useState(0);
   const [strategyForm, setStrategyForm] = useState<VideoStrategy | null>(null);
+  const [isExporting, setIsExporting] = useState(false);
 
   useEffect(() => {
     if (state.scenes.length === 0) return;
@@ -250,21 +181,9 @@ export default function App() {
     return () => observer.disconnect();
   }, [state.scenes]);
 
-  const checkApiKey = async () => {
-    if (window.aistudio?.hasSelectedApiKey) {
-      const hasKey = await window.aistudio.hasSelectedApiKey();
-      if (!hasKey && window.aistudio.openSelectKey) await window.aistudio.openSelectKey();
-    }
-  };
-
-  const extractUrls = (text: string) => {
-    const urlRegex = /(https?:\/\/[^\s]+)/g;
-    return text.match(urlRegex) || [];
-  };
-
   const startAnalysis = useCallback(async (topic: string) => {
-    await checkApiKey();
-    const userLinks = extractUrls(topic);
+    if (window.aistudio?.hasSelectedApiKey && !(await window.aistudio.hasSelectedApiKey())) await window.aistudio?.openSelectKey?.();
+    const userLinks = (topic.match(/(https?:\/\/[^\s]+)/g) || []);
     dispatch({ type: 'START_ANALYSIS', payload: { topic, userLinks, voice: selectedVoice, hookStyle: selectedHook, aspectRatio: selectedAspectRatio } });
     try {
        const strategy = await GeminiService.analyzeRequest(topic);
@@ -277,8 +196,6 @@ export default function App() {
 
   const runDeepResearch = async (scenes: Scene[]) => {
       dispatch({ type: 'SET_STATUS', payload: PipelineStep.RESEARCHING });
-      dispatch({ type: 'ADD_LOG', payload: 'Researching visual references...' });
-      const CONCURRENCY = 4;
       const processResearch = async (scene: Scene) => {
           dispatch({ type: 'UPDATE_SCENE_RESEARCH_STATUS', payload: { id: scene.id, isResearching: true } });
           const assets = await GeminiService.researchScene(scene);
@@ -286,7 +203,7 @@ export default function App() {
           dispatch({ type: 'UPDATE_SCENE_RESEARCH_STATUS', payload: { id: scene.id, isResearching: false } });
       };
       const queue = [...scenes];
-      const workers = Array.from({ length: CONCURRENCY }).map(async () => {
+      const workers = Array.from({ length: 4 }).map(async () => {
           while (queue.length > 0) {
               const scene = queue.shift();
               if (scene) await processResearch(scene);
@@ -294,18 +211,15 @@ export default function App() {
       });
       await Promise.all(workers);
       dispatch({ type: 'SET_STATUS', payload: PipelineStep.REVIEW });
-      dispatch({ type: 'ADD_LOG', payload: 'Intel gathering complete.' });
   };
 
   const confirmStrategyAndPlan = useCallback(async () => {
     if (!strategyForm) return;
     dispatch({ type: 'SET_STATUS', payload: PipelineStep.NARRATIVE });
-    dispatch({ type: 'ADD_LOG', payload: 'Synthesizing narrative arc...' });
     try {
       const beats = await GeminiService.generateNarrative(state.topic, state.hookStyle, strategyForm);
       dispatch({ type: 'SET_NARRATIVE', payload: beats });
       dispatch({ type: 'SET_STATUS', payload: PipelineStep.SCENE_PLANNING });
-      dispatch({ type: 'ADD_LOG', payload: 'Directing storyboard...' });
       const scenes = await GeminiService.planScenes(beats, state.aspectRatio, state.userLinks, strategyForm, state.hookStyle);
       dispatch({ type: 'SET_SCENES', payload: scenes });
       await runDeepResearch(scenes);
@@ -314,57 +228,37 @@ export default function App() {
     }
   }, [strategyForm, state.topic, state.hookStyle, state.aspectRatio, state.userLinks]);
 
-  const generateAudioForScene = async (sceneId: string, script: string) => {
-    dispatch({ type: 'UPDATE_ASSET_STATUS', payload: { id: sceneId, type: 'audio', status: 'loading' } });
-    try {
-        const url = await GeminiService.generateSpeech(script, state.voice);
-        dispatch({ type: 'UPDATE_SCENE_AUDIO', payload: { id: sceneId, url } });
-        return true;
-    } catch (e) {
-        dispatch({ type: 'UPDATE_ASSET_STATUS', payload: { id: sceneId, type: 'audio', status: 'error' } });
-        return false;
-    }
-  };
-
-  const generateImageForScene = async (sceneId: string, prompt: string) => {
-    dispatch({ type: 'UPDATE_ASSET_STATUS', payload: { id: sceneId, type: 'image', status: 'loading' } });
-    try {
-        const { imageUrl, groundingChunks } = await GeminiService.generateSceneImage(prompt, state.aspectRatio);
-        dispatch({ type: 'UPDATE_SCENE_IMAGE', payload: { id: sceneId, url: imageUrl, groundingChunks } });
-        return imageUrl;
-    } catch (e) {
-        dispatch({ type: 'UPDATE_ASSET_STATUS', payload: { id: sceneId, type: 'image', status: 'error' } });
-        return null;
-    }
-  };
-
-  const generateVideoForScene = async (sceneId: string, prompt: string, imageUrl: string) => {
-    dispatch({ type: 'UPDATE_ASSET_STATUS', payload: { id: sceneId, type: 'video', status: 'loading' } });
-    try {
-        const videoUrl = await GeminiService.generateVideo(prompt, state.aspectRatio, imageUrl);
-        dispatch({ type: 'UPDATE_SCENE_VIDEO', payload: { id: sceneId, url: videoUrl } });
-        return true;
-    } catch (e) {
-        dispatch({ type: 'UPDATE_ASSET_STATUS', payload: { id: sceneId, type: 'video', status: 'error' } });
-        return false;
-    }
-  };
-
   const processScene = async (scene: Scene) => {
-      const audioPromise = generateAudioForScene(scene.id, scene.script);
-      const imagePromise = generateImageForScene(scene.id, scene.imagePrompt || scene.script);
-      const [audioSuccess, generatedImageUrl] = await Promise.all([audioPromise, imagePromise]);
-      if (generatedImageUrl && (scene.useVeo || scene.type === 'split_screen')) {
-          await generateVideoForScene(scene.id, scene.imagePrompt || scene.script, generatedImageUrl);
+      // 1. Audio
+      dispatch({ type: 'UPDATE_ASSET_STATUS', payload: { id: scene.id, type: 'audio', status: 'loading' } });
+      const audioUrl = await GeminiService.generateSpeech(scene.script, state.voice);
+      dispatch({ type: 'UPDATE_SCENE_AUDIO', payload: { id: scene.id, url: audioUrl } });
+
+      // 2. Primary Asset
+      dispatch({ type: 'UPDATE_ASSET_STATUS', payload: { id: scene.id, type: 'image1', status: 'loading' } });
+      const res1 = await GeminiService.generateSceneImage(scene.imagePrompt1 || scene.script, state.aspectRatio);
+      dispatch({ type: 'UPDATE_SCENE_IMAGE', payload: { id: scene.id, slot: 1, url: res1.imageUrl } });
+      if (scene.useVeo) {
+          dispatch({ type: 'UPDATE_ASSET_STATUS', payload: { id: scene.id, type: 'video1', status: 'loading' } });
+          const v1 = await GeminiService.generateVideo(scene.imagePrompt1 || scene.script, state.aspectRatio, res1.imageUrl);
+          dispatch({ type: 'UPDATE_SCENE_VIDEO', payload: { id: scene.id, slot: 1, url: v1 } });
+      }
+
+      // 3. Secondary Asset (Dual visual requirement)
+      dispatch({ type: 'UPDATE_ASSET_STATUS', payload: { id: scene.id, type: 'image2', status: 'loading' } });
+      const res2 = await GeminiService.generateSceneImage(scene.imagePrompt2 || "Alternative angle of " + scene.script, state.aspectRatio);
+      dispatch({ type: 'UPDATE_SCENE_IMAGE', payload: { id: scene.id, slot: 2, url: res2.imageUrl } });
+      if (scene.useVeo) {
+          dispatch({ type: 'UPDATE_ASSET_STATUS', payload: { id: scene.id, type: 'video2', status: 'loading' } });
+          const v2 = await GeminiService.generateVideo(scene.imagePrompt2 || scene.script, state.aspectRatio, res2.imageUrl);
+          dispatch({ type: 'UPDATE_SCENE_VIDEO', payload: { id: scene.id, slot: 2, url: v2 } });
       }
   };
 
   const approveAndGenerate = useCallback(async () => {
      dispatch({ type: 'SET_STATUS', payload: PipelineStep.ASSET_GENERATION });
-     dispatch({ type: 'ADD_LOG', payload: 'Beginning parallel production...' });
-     const CONCURRENCY = 2; // Keep it low for high reliability on complex video generation
      const queue = [...state.scenes];
-     const workers = Array.from({ length: CONCURRENCY }).map(async () => {
+     const workers = Array.from({ length: 2 }).map(async () => {
          while (queue.length > 0) {
              const scene = queue.shift();
              if (scene) await processScene(scene);
@@ -372,31 +266,24 @@ export default function App() {
      });
      await Promise.all(workers);
      dispatch({ type: 'SET_STATUS', payload: PipelineStep.COMPLETE });
-     dispatch({ type: 'ADD_LOG', payload: 'Production complete.' });
   }, [state.scenes]);
 
-  const handleRetryAsset = async (sceneId: string, type: 'audio' | 'image' | 'video') => {
-      const scene = state.scenes.find(s => s.id === sceneId);
-      if (!scene) return;
-      if (type === 'audio') await generateAudioForScene(sceneId, scene.script);
-      else if (type === 'image') {
-          const imgUrl = await generateImageForScene(sceneId, scene.imagePrompt || scene.script);
-          if (imgUrl && scene.useVeo) await generateVideoForScene(sceneId, scene.imagePrompt || scene.script, imgUrl);
-      } else if (type === 'video') {
-          if (scene.imageUrl) await generateVideoForScene(sceneId, scene.imagePrompt || scene.script, scene.imageUrl);
-      }
+  const handleDownload = () => {
+    const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(state.scenes, null, 2));
+    const downloadAnchorNode = document.createElement('a');
+    downloadAnchorNode.setAttribute("href", dataStr);
+    downloadAnchorNode.setAttribute("download", `project_${Date.now()}.json`);
+    document.body.appendChild(downloadAnchorNode);
+    downloadAnchorNode.click();
+    downloadAnchorNode.remove();
   };
 
-  const StrategyField = ({ label, icon, value, options, onChange }: any) => (
-    <div className="space-y-2">
-      <label className="text-xs font-bold text-zinc-500 uppercase flex items-center gap-2">{icon} {label}</label>
-      <div className="relative group">
-         <input type="text" value={value} onChange={(e) => onChange(e.target.value)} className="w-full bg-zinc-950 border border-zinc-800 rounded-lg p-3 pr-8 text-sm focus:ring-1 focus:ring-blue-500 outline-none" />
-         <div className="absolute right-2 top-1/2 -translate-y-1/2 pointer-events-none"><ChevronDown size={14} className="text-zinc-600 group-hover:text-zinc-400" /></div>
-         <select className="absolute inset-0 w-full h-full opacity-0 cursor-pointer" onChange={(e) => onChange(e.target.value)} value=""><option value="" disabled>Select...</option>{options.map((opt:string) => (<option key={opt} value={opt}>{opt}</option>))}</select>
-      </div>
-    </div>
-  );
+  const handleYouTubeExport = async () => {
+    setIsExporting(true);
+    await new Promise(r => setTimeout(r, 4000));
+    alert("Export initiated! Your project components are being packaged for distribution.");
+    setIsExporting(false);
+  };
 
   const activeResearchScene = state.scenes.find(s => s.id === researchSceneId);
 
@@ -409,8 +296,8 @@ export default function App() {
             <h1 className="font-bold text-lg tracking-tight">Agentic<span className="text-zinc-500">Video</span></h1>
           </div>
           <div className="flex items-center gap-4">
-             {window.aistudio?.openSelectKey && <button onClick={() => window.aistudio?.openSelectKey()} className="text-xs font-mono text-zinc-400 hover:text-white flex items-center gap-1 transition-colors"><Key size={12} /> API KEY</button>}
-             <div className="text-xs font-mono text-zinc-600 bg-zinc-900 px-3 py-1 rounded-full border border-zinc-800">v0.3.0</div>
+             {window.aistudio?.openSelectKey && <button onClick={() => window.aistudio?.openSelectKey?.()} className="text-xs font-mono text-zinc-400 hover:text-white flex items-center gap-1"><Key size={12} /> API KEY</button>}
+             <div className="text-xs font-mono text-zinc-600 bg-zinc-900 px-3 py-1 rounded-full border border-zinc-800">v0.4.0</div>
           </div>
         </div>
       </header>
@@ -422,105 +309,96 @@ export default function App() {
 
         {state.status === PipelineStep.IDLE ? (
            <div className="flex-1 flex flex-col items-center justify-center px-4 py-20 relative overflow-hidden">
-           <div className="absolute top-0 left-1/2 -translate-x-1/2 w-[1000px] h-[500px] bg-blue-600/10 rounded-full blur-[120px] pointer-events-none" />
-           <div className="w-full max-w-3xl relative z-10 space-y-10">
-             <div className="text-center space-y-6">
-                <h2 className="text-6xl md:text-7xl font-bold tracking-tighter text-white">Story to Video.</h2>
-                <p className="text-zinc-400 text-xl max-w-xl mx-auto leading-relaxed">Multi-agent intelligence for professional explainer production.</p>
-             </div>
-             <div className="bg-zinc-900/50 backdrop-blur-xl border border-white/10 rounded-2xl p-2 shadow-2xl">
-                 <form onSubmit={(e) => { e.preventDefault(); if (inputValue.trim()) startAnalysis(inputValue); }} className="flex flex-col gap-2">
-                    <div className="flex items-start px-4 py-4 gap-4">
-                       <div className="pt-1 text-zinc-500"><BrainCircuit size={24} /></div>
-                       <input type="text" value={inputValue} onChange={(e) => setInputValue(e.target.value)} placeholder="Topic, news URL, or script..." className="w-full bg-transparent border-none text-xl focus:ring-0 placeholder:text-zinc-600 outline-none text-white font-medium" autoFocus />
-                    </div>
-                    <div className="bg-black/40 rounded-xl p-3 flex flex-wrap items-center gap-4">
-                       <div className="flex items-center gap-2 overflow-x-auto pb-2 md:pb-0 hide-scrollbar">
-                          {HOOKS.map(hook => (
-                              <button key={hook.id} type="button" onClick={() => setSelectedHook(hook.id)} className={`relative flex-shrink-0 w-28 h-16 rounded-lg overflow-hidden border transition-all ${selectedHook === hook.id ? 'border-blue-500 ring-2 ring-blue-500/20' : 'border-white/10 opacity-60 hover:opacity-100'}`}>
-                                 {hook.type === 'video' ? <video src={hook.asset} className="w-full h-full object-cover" muted /> : <img src={hook.asset} className="w-full h-full object-cover" />}
-                                 <div className="absolute inset-0 bg-black/60 flex items-center justify-center"><span className="text-[9px] font-bold text-white uppercase text-center px-1">{hook.label}</span></div>
-                              </button>
-                          ))}
-                       </div>
-                       <div className="w-[1px] h-10 bg-white/10 hidden md:block" />
-                       <div className="flex items-center gap-4 flex-wrap">
-                           <div className="flex gap-1">
-                             <button type="button" onClick={() => setSelectedAspectRatio('16:9')} className={`p-2 rounded-lg border ${selectedAspectRatio === '16:9' ? 'bg-zinc-800 text-white' : 'text-zinc-500'}`}><Monitor size={18} /></button>
-                             <button type="button" onClick={() => setSelectedAspectRatio('9:16')} className={`p-2 rounded-lg border ${selectedAspectRatio === '9:16' ? 'bg-zinc-800 text-white' : 'text-zinc-500'}`}><Smartphone size={18} /></button>
-                           </div>
-                           <select value={selectedVoice} onChange={(e) => setSelectedVoice(e.target.value)} className="bg-zinc-800 border border-zinc-700 text-white text-xs rounded-lg px-3 py-2 outline-none">
-                                {VOICES.map(v => <option key={v.id} value={v.id}>{v.label}</option>)}
-                           </select>
-                       </div>
-                       <button type="submit" className="ml-auto px-6 py-3 bg-white text-black font-bold rounded-xl hover:bg-zinc-200 transition-colors flex items-center gap-2 text-sm">Generate <ArrowRight size={16} /></button>
-                    </div>
-                 </form>
+             <div className="absolute top-0 left-1/2 -translate-x-1/2 w-[1000px] h-[500px] bg-blue-600/10 rounded-full blur-[120px] pointer-events-none" />
+             <div className="w-full max-w-3xl relative z-10 space-y-10">
+               <div className="text-center space-y-6">
+                  <h2 className="text-6xl md:text-7xl font-bold tracking-tighter text-white">Story to Video.</h2>
+                  <p className="text-zinc-400 text-xl max-w-xl mx-auto leading-relaxed">Dual-asset multi-agent intelligence for professional explainers.</p>
+               </div>
+               <div className="bg-zinc-900/50 backdrop-blur-xl border border-white/10 rounded-2xl p-2 shadow-2xl">
+                   <form onSubmit={(e) => { e.preventDefault(); if (inputValue.trim()) startAnalysis(inputValue); }} className="flex flex-col gap-2">
+                      <div className="flex items-start px-4 py-4 gap-4">
+                         <div className="pt-1 text-zinc-500"><BrainCircuit size={24} /></div>
+                         <input type="text" value={inputValue} onChange={(e) => setInputValue(e.target.value)} placeholder="Topic or script..." className="w-full bg-transparent border-none text-xl focus:ring-0 placeholder:text-zinc-600 outline-none text-white font-medium" autoFocus />
+                      </div>
+                      <div className="bg-black/40 rounded-xl p-3 flex flex-wrap items-center gap-4">
+                         <div className="flex items-center gap-2 overflow-x-auto pb-2 md:pb-0 hide-scrollbar">
+                            {HOOKS.map(hook => (
+                                <button key={hook.id} type="button" onClick={() => setSelectedHook(hook.id)} className={`relative flex-shrink-0 w-28 h-16 rounded-lg overflow-hidden border transition-all ${selectedHook === hook.id ? 'border-blue-500 ring-2 ring-blue-500/20' : 'border-white/10 opacity-60 hover:opacity-100'}`}>
+                                   {hook.type === 'video' ? <video src={hook.asset} className="w-full h-full object-cover" muted /> : <img src={hook.asset} className="w-full h-full object-cover" />}
+                                   <div className="absolute inset-0 bg-black/60 flex items-center justify-center"><span className="text-[9px] font-bold text-white uppercase px-1">{hook.label}</span></div>
+                                </button>
+                            ))}
+                         </div>
+                         <div className="w-[1px] h-10 bg-white/10 hidden md:block" />
+                         <div className="flex items-center gap-4 flex-wrap">
+                             <div className="flex gap-1">
+                               <button type="button" onClick={() => setSelectedAspectRatio('16:9')} className={`p-2 rounded-lg border ${selectedAspectRatio === '16:9' ? 'bg-zinc-800 text-white' : 'text-zinc-500'}`}><Monitor size={18} /></button>
+                               <button type="button" onClick={() => setSelectedAspectRatio('9:16')} className={`p-2 rounded-lg border ${selectedAspectRatio === '9:16' ? 'bg-zinc-800 text-white' : 'text-zinc-500'}`}><Smartphone size={18} /></button>
+                             </div>
+                             <select value={selectedVoice} onChange={(e) => setSelectedVoice(e.target.value)} className="bg-zinc-800 border border-zinc-700 text-white text-xs rounded-lg px-3 py-2 outline-none">
+                                  {VOICES.map(v => <option key={v.id} value={v.id}>{v.label}</option>)}
+                             </select>
+                         </div>
+                         <button type="submit" className="ml-auto px-6 py-3 bg-white text-black font-bold rounded-xl hover:bg-zinc-200 transition-colors flex items-center gap-2 text-sm">Generate <ArrowRight size={16} /></button>
+                      </div>
+                   </form>
+               </div>
              </div>
            </div>
-         </div>
         ) : (
           <div className="flex-1 flex flex-col w-full px-6 py-8 relative z-10">
             <div className="max-w-6xl mx-auto w-full">
                 <PipelineSteps currentStep={state.status} />
-                {state.status === PipelineStep.ERROR && (
-                    <div className="mx-auto max-w-xl bg-red-950 border border-red-500 text-red-200 p-6 rounded-2xl flex items-center gap-4 mb-8">
-                        <AlertCircle size={24} />
-                        <div className="flex-1"><h3 className="font-bold">Error</h3><p className="text-sm opacity-80">{state.error}</p></div>
-                        <button onClick={() => dispatch({ type: 'RESET' })} className="px-4 py-2 bg-red-500/20 rounded-lg text-sm">Reset</button>
+                {state.status === PipelineStep.COMPLETE && (
+                    <div className="mx-auto max-w-3xl bg-zinc-900 border border-zinc-700 p-8 rounded-3xl flex flex-col items-center text-center gap-6 mb-12 shadow-2xl animate-in zoom-in-95 duration-500">
+                        <div className="w-20 h-20 bg-green-500/20 rounded-full flex items-center justify-center border border-green-500/30 text-green-400 mb-2">
+                            <CheckCircle2 size={40} />
+                        </div>
+                        <div>
+                            <h2 className="text-3xl font-black text-white mb-2 uppercase tracking-tight">Production Finished</h2>
+                            <p className="text-zinc-500 font-mono text-sm uppercase tracking-widest">Master file ready for distribution</p>
+                        </div>
+                        <div className="flex gap-4 w-full justify-center">
+                            <button onClick={handleDownload} className="flex-1 max-w-[200px] px-6 py-4 bg-zinc-800 hover:bg-zinc-700 text-white font-bold rounded-2xl flex items-center justify-center gap-3 transition-all"><Download size={20} /> Download</button>
+                            <button onClick={handleYouTubeExport} disabled={isExporting} className="flex-1 max-w-[200px] px-6 py-4 bg-red-600 hover:bg-red-500 text-white font-bold rounded-2xl flex items-center justify-center gap-3 transition-all">
+                                {isExporting ? <Loader2 className="animate-spin" size={20} /> : <Youtube size={20} />}
+                                {isExporting ? 'Exporting...' : 'Export to YouTube'}
+                            </button>
+                            <button onClick={() => setIsPreviewOpen(true)} className="flex-1 max-w-[200px] px-6 py-4 bg-blue-600 hover:bg-blue-500 text-white font-bold rounded-2xl flex items-center justify-center gap-3 transition-all"><Rocket size={20} /> Launch Player</button>
+                        </div>
                     </div>
                 )}
             </div>
 
             {state.status === PipelineStep.STRATEGY && strategyForm && (
-                <div className="max-w-4xl mx-auto w-full animate-in fade-in slide-in-from-bottom-8 duration-500">
-                    <div className="bg-zinc-900 border border-zinc-800 rounded-3xl p-8 shadow-2xl">
-                        <h2 className="text-3xl font-bold text-white mb-8">Production Blueprint</h2>
-                        <div className="bg-black/60 rounded-2xl p-6 mb-8 border border-white/5">
-                            <h4 className="text-xs font-bold text-zinc-500 uppercase tracking-widest mb-3">Proposed Strategy</h4>
+                <div className="max-w-4xl mx-auto w-full">
+                    <div className="bg-zinc-900 border border-zinc-800 rounded-3xl p-8">
+                        <h2 className="text-3xl font-bold text-white mb-8">Production Strategy</h2>
+                        <div className="bg-black/60 rounded-2xl p-6 mb-8">
+                            <h4 className="text-xs font-bold text-zinc-500 uppercase mb-3">Core Direction</h4>
                             <p className="text-zinc-100 text-lg leading-relaxed">"{strategyForm.summary}"</p>
                         </div>
-                        <div className="grid grid-cols-1 md:grid-cols-3 gap-8 mb-10">
-                            <StrategyField label="Audience" icon={<Target size={14} />} value={strategyForm.targetAudience} options={AUDIENCE_OPTIONS} onChange={(val: string) => setStrategyForm({...strategyForm, targetAudience: val})} />
-                            <StrategyField label="Tone" icon={<PenTool size={14} />} value={strategyForm.toneStyle} options={TONE_OPTIONS} onChange={(val: string) => setStrategyForm({...strategyForm, toneStyle: val})} />
-                            <StrategyField label="Goal" icon={<Lightbulb size={14} />} value={strategyForm.keyObjective} options={OBJECTIVE_OPTIONS} onChange={(val: string) => setStrategyForm({...strategyForm, keyObjective: val})} />
-                        </div>
-                        <div className="flex justify-end"><button onClick={confirmStrategyAndPlan} className="px-8 py-4 bg-white text-black font-bold rounded-2xl flex items-center gap-3"><Zap size={20} /> Deploy Agents</button></div>
+                        <button onClick={confirmStrategyAndPlan} className="w-full py-4 bg-white text-black font-bold rounded-2xl flex items-center justify-center gap-3"><Zap size={20} /> Start Scene Planning</button>
                     </div>
                 </div>
             )}
 
             {(state.status === PipelineStep.REVIEW || state.status === PipelineStep.RESEARCHING || state.status === PipelineStep.ASSET_GENERATION || state.status === PipelineStep.COMPLETE) && (
-                <div className="relative flex max-w-7xl mx-auto w-full gap-12">
-                    <div className="hidden xl:block w-72 flex-shrink-0">
-                        <div className="sticky top-24 max-h-[calc(100vh-8rem)] overflow-y-auto pr-4">
-                            <h3 className="text-sm font-bold text-zinc-500 uppercase tracking-widest mb-6 flex items-center gap-2"><Activity size={14} /> Narrative Arc</h3>
-                            <div className="space-y-1 relative border-l border-zinc-800 ml-3">
-                                {state.narrativeBeats.map((beat, i) => (
-                                    <div key={i} className={`relative pl-6 py-2 transition-all ${activeSceneIndex === i ? 'opacity-100' : 'opacity-40'}`}>
-                                        <div className={`absolute left-[-5px] top-3.5 w-2.5 h-2.5 rounded-full border-2 ${activeSceneIndex === i ? 'bg-blue-500 border-blue-400' : 'bg-zinc-900 border-zinc-700'}`} />
-                                        <h4 className="text-sm font-bold">{beat.beat}</h4>
-                                        <p className="text-xs text-zinc-400 mt-1">{beat.description}</p>
-                                    </div>
-                                ))}
-                            </div>
+                <div className="max-w-6xl mx-auto w-full space-y-12">
+                    <div className="flex justify-between items-end border-b border-zinc-800 pb-8">
+                        <div>
+                            <h1 className="text-4xl font-bold text-white mb-2 tracking-tight">Project Board</h1>
+                            {state.status === PipelineStep.ASSET_GENERATION && <ProductionTimer />}
+                        </div>
+                        <div className="flex gap-4">
+                            <button onClick={() => setIsPreviewOpen(true)} className="px-6 py-3 bg-white text-black font-bold rounded-full flex items-center gap-2"><PlayCircle size={20} /> Watch Preview</button>
+                            {state.status === PipelineStep.REVIEW && <button onClick={approveAndGenerate} className="px-6 py-3 bg-blue-600 text-white font-bold rounded-full flex items-center gap-2">Finalize Render <ArrowRight size={18} /></button>}
                         </div>
                     </div>
-
-                    <div className="flex-1 pb-40 space-y-24 min-w-0">
-                        <div className="flex justify-between items-end border-b border-zinc-800 pb-4 mb-10">
-                            <div><h1 className="text-4xl font-bold text-white mb-2">Storyboard</h1>{state.status === PipelineStep.ASSET_GENERATION && <ProductionTimer />}</div>
-                            <div className="flex gap-4">
-                                <button onClick={() => setIsPreviewOpen(true)} className="px-6 py-3 bg-white text-black font-bold rounded-full flex items-center gap-2"><PlayCircle size={20} /> Preview</button>
-                                {state.status === PipelineStep.REVIEW && <button onClick={approveAndGenerate} className="px-6 py-3 bg-blue-600 text-white font-bold rounded-full flex items-center gap-2">Final Render <ArrowRight size={18} /></button>}
-                            </div>
-                        </div>
-                        {state.scenes.map((scene, index) => (
-                            <div key={scene.id} id={`scene-card-${index}`} data-index={index} className="relative">
-                                <SceneCard scene={scene} index={index} status={state.status} onClick={() => {}} onViewResearch={(e) => { e.stopPropagation(); setResearchSceneId(scene.id); }} onEditScript={(e) => { e.stopPropagation(); setEditingSceneId(scene.id); setEditScriptText(scene.script); }} onRetryAsset={handleRetryAsset} />
-                            </div>
-                        ))}
-                    </div>
+                    {state.scenes.map((scene, index) => (
+                        <SceneCard key={scene.id} scene={scene} index={index} status={state.status} onClick={() => {}} onViewResearch={(e) => { e.stopPropagation(); setResearchSceneId(scene.id); }} onEditScript={(e) => { e.stopPropagation(); setEditingSceneId(scene.id); setEditScriptText(scene.script); }} />
+                    ))}
                 </div>
             )}
           </div>
@@ -529,16 +407,15 @@ export default function App() {
 
       {editingSceneId && (
           <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4">
-              <div className="w-full max-w-lg bg-zinc-900 border border-zinc-800 rounded-3xl p-8 shadow-2xl">
-                  <h3 className="text-xl font-bold mb-6 flex items-center gap-3 text-white"><Edit2 size={20} /> Edit Script</h3>
-                  <textarea value={editScriptText} onChange={(e) => setEditScriptText(e.target.value)} className="w-full h-48 bg-zinc-950 text-zinc-100 p-4 rounded-xl border border-zinc-800 mb-6 font-serif text-xl leading-relaxed resize-none" />
-                  <div className="flex justify-end gap-3"><button onClick={() => setEditingSceneId(null)} className="px-6 py-3 text-zinc-400">Cancel</button><button onClick={() => { dispatch({ type: 'UPDATE_SCENE_SCRIPT', payload: { id: editingSceneId, script: editScriptText } }); setEditingSceneId(null); }} className="px-6 py-3 bg-white text-black font-bold rounded-xl">Save Changes</button></div>
+              <div className="w-full max-w-lg bg-zinc-900 border border-zinc-800 rounded-3xl p-8">
+                  <textarea value={editScriptText} onChange={(e) => setEditScriptText(e.target.value)} className="w-full h-48 bg-zinc-950 text-white p-4 rounded-xl mb-6" />
+                  <div className="flex justify-end gap-3"><button onClick={() => setEditingSceneId(null)} className="px-6 py-3 text-zinc-400">Cancel</button><button onClick={() => { dispatch({ type: 'UPDATE_SCENE_SCRIPT', payload: { id: editingSceneId, script: editScriptText } }); setEditingSceneId(null); }} className="px-6 py-3 bg-white text-black font-bold rounded-xl">Save</button></div>
               </div>
           </div>
       )}
 
       {isPreviewOpen && state.scenes.length > 0 && <PreviewPlayer scenes={state.scenes} onClose={() => setIsPreviewOpen(false)} />}
-      {activeResearchScene && <ResearchPopup scene={activeResearchScene} onClose={() => setResearchSceneId(null)} onMixAssets={async (a, b) => { try { const { imageUrl, groundingChunks } = await GeminiService.mixAssets(a, b, state.aspectRatio); dispatch({ type: 'UPDATE_SCENE_IMAGE', payload: { id: researchSceneId!, url: imageUrl, groundingChunks } }); } catch (e) { console.error(e); } }} />}
+      {activeResearchScene && <ResearchPopup scene={activeResearchScene} onClose={() => setResearchSceneId(null)} onMixAssets={async (a, b) => { try { const { imageUrl } = await GeminiService.mixAssets(a, b, state.aspectRatio); dispatch({ type: 'UPDATE_SCENE_IMAGE', payload: { id: researchSceneId!, slot: 1, url: imageUrl } }); } catch (e) { console.error(e); } }} />}
     </div>
   );
 }

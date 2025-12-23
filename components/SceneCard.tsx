@@ -1,302 +1,79 @@
 
-import React, { useEffect, useState } from 'react';
+import React from 'react';
 import { Scene, PipelineStep, AssetStatus } from '../types';
-import { Clock, Film, Move, Search, Cpu, Edit2, PlayCircle, Mic, Image as ImageIcon, Video as VideoIcon, AlertTriangle, Trophy, BrainCircuit, CheckCircle2, Loader2, XCircle, RefreshCw, Layers, Terminal, FileText, ExternalLink } from 'lucide-react';
+import { Clock, Film, Search, Mic, Image as ImageIcon, Video as VideoIcon, CheckCircle2, Loader2, XCircle, Activity, Layout } from 'lucide-react';
 
 interface SceneCardProps {
   scene: Scene;
   index: number;
   status?: PipelineStep;
-  userLinks?: string[]; 
-  onClick: () => void;
   onViewResearch: (e: React.MouseEvent) => void;
   onEditScript: (e: React.MouseEvent) => void;
-  onRetryAsset?: (sceneId: string, type: 'audio' | 'image' | 'video') => void;
 }
 
-const Typewriter = ({ text, delay = 10 }: { text: string, delay?: number }) => {
-    const [displayedText, setDisplayedText] = useState('');
-    useEffect(() => {
-        let i = 0;
-        const timer = setInterval(() => {
-            if (i < text.length) {
-                setDisplayedText(prev => prev + text.charAt(i));
-                i++;
-            } else {
-                clearInterval(timer);
-            }
-        }, delay);
-        return () => clearInterval(timer);
-    }, [text, delay]);
-    return <span>{displayedText}</span>;
-};
-
-// New Component: Simulates live agent activity log
-const LiveAgentLog = () => {
-    const [log, setLog] = useState("Initializing research agent...");
-    
-    useEffect(() => {
-        const logs = [
-            "Scanning archival databases...",
-            "Cross-referencing visual motifs...",
-            "Identifying primary sources...",
-            "Fetching metadata from source...",
-            "Analyzing image composition...",
-            "Verifying historical accuracy...",
-            "Synthesizing visual plan...",
-            "Querying knowledge graph..."
-        ];
-        let i = 0;
-        const interval = setInterval(() => {
-            setLog(logs[i % logs.length]);
-            i++;
-        }, 1200);
-        return () => clearInterval(interval);
-    }, []);
-
-    return (
-        <div className="font-mono text-xs text-blue-400 flex items-center gap-2">
-            <span className="w-2 h-2 bg-blue-500 rounded-full animate-pulse" />
-            {log}
+const StatusIndicator = ({ label, status, icon }: { label: string, status: AssetStatus, icon: React.ReactNode }) => (
+    <div className="flex items-center justify-between py-1.5 px-3 bg-black/20 rounded-lg border border-white/5">
+        <div className="flex items-center gap-2 text-[10px] font-mono text-zinc-500 uppercase tracking-widest">
+            {icon} {label}
         </div>
-    );
-};
+        {status === 'loading' ? <Loader2 size={12} className="text-blue-500 animate-spin" /> : 
+         status === 'success' ? <CheckCircle2 size={12} className="text-green-500" /> :
+         status === 'error' ? <XCircle size={12} className="text-red-500" /> :
+         <div className="w-3 h-3 rounded-full border border-zinc-700" />}
+    </div>
+);
 
-const StatusRow = ({ label, status, onRetry, icon }: { label: string, status: AssetStatus, onRetry: () => void, icon: React.ReactNode }) => {
-    return (
-        <div className="flex items-center justify-between py-2 border-b border-zinc-800/50 last:border-0">
-            <div className="flex items-center gap-2 text-sm text-zinc-400">
-                {icon}
-                <span>{label}</span>
-            </div>
-            <div className="flex items-center gap-2">
-                {status === 'loading' && <Loader2 size={16} className="text-blue-500 animate-spin" />}
-                {status === 'success' && <CheckCircle2 size={16} className="text-green-500" />}
-                {status === 'error' && (
-                    <div className="flex items-center gap-2">
-                        <XCircle size={16} className="text-red-500" />
-                        <button onClick={onRetry} className="p-1 hover:bg-zinc-800 rounded transition-colors text-zinc-500 hover:text-zinc-300">
-                            <RefreshCw size={12} />
-                        </button>
-                    </div>
-                )}
-                {status === 'idle' && <div className="w-4 h-4 rounded-full border border-zinc-700" />}
-            </div>
-        </div>
-    );
-};
-
-export const SceneCard: React.FC<SceneCardProps> = ({ scene, index, status, onClick, onViewResearch, onEditScript, onRetryAsset }) => {
-  const isReviewMode = status === PipelineStep.REVIEW || status === PipelineStep.RESEARCHING;
+export const SceneCard: React.FC<SceneCardProps> = ({ scene, index, status, onViewResearch, onEditScript }) => {
   const isProduction = status === PipelineStep.ASSET_GENERATION || status === PipelineStep.COMPLETE;
-  const isResearching = scene.isResearching;
   
-  const assets = scene.assets || [];
-  const researchScore = (assets.filter(a => a.type === 'source').length * 0.5) + (assets.filter(a => a.type === 'image').length * 1) + (assets.filter(a => a.type === 'video').length * 2);
-  const isLowIntel = researchScore < 2;
-
-  const needsVideo = scene.useVeo || scene.type === 'split_screen' || scene.visualEffect === 'ZOOM_BLUR';
-
   return (
-    <div 
-      onClick={onClick}
-      className={`group relative w-full bg-zinc-900/40 backdrop-blur-sm border border-zinc-800 rounded-3xl overflow-hidden transition-all duration-500 hover:border-zinc-700
-        ${isReviewMode ? 'hover:shadow-[0_0_40px_rgba(0,0,0,0.5)]' : ''}
-        ${isResearching ? 'border-blue-500/30 shadow-[0_0_20px_rgba(59,130,246,0.1)]' : ''}
-      `}
-    >
-      <div className="flex flex-col lg:flex-row h-auto lg:h-[600px]">
-          
-          <div className="lg:w-7/12 relative h-[300px] lg:h-full bg-black border-b lg:border-b-0 lg:border-r border-zinc-800 group-hover:border-zinc-700 transition-colors flex flex-col">
-              <div className="relative flex-1 overflow-hidden">
-                {scene.imageUrl ? (
-                    <div className="w-full h-full relative group/image">
-                        <img 
-                        src={scene.imageUrl} 
-                        alt={scene.imagePrompt} 
-                        className={`w-full h-full object-cover transition-transform duration-700 group-hover:scale-105 ${scene.statusImage === 'loading' ? 'blur-sm' : ''}`}
-                        />
-                        {scene.videoUrl && (
-                            <div className="absolute inset-0 flex items-center justify-center bg-black/20 backdrop-blur-[1px]">
-                            <div className="w-16 h-16 rounded-full bg-white/10 backdrop-blur-md flex items-center justify-center border border-white/20 shadow-xl group-hover/image:scale-110 transition-transform">
-                                    <PlayCircle size={32} className="text-white fill-white/20" />
-                            </div>
-                            </div>
-                        )}
-                        <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-transparent opacity-60" />
-                        <div className="absolute top-4 left-4 flex gap-2 flex-wrap">
-                            <span className="px-3 py-1 rounded-full bg-black/60 backdrop-blur border border-white/10 text-[10px] font-bold text-zinc-300 uppercase tracking-wider">
-                                {scene.type.replace('_', ' ')}
-                            </span>
-                            {scene.useVeo && (
-                                <span className="px-3 py-1 rounded-full bg-red-900/60 backdrop-blur border border-red-500/30 text-[10px] font-bold text-red-300 uppercase tracking-wider flex items-center gap-1 animate-pulse">
-                                    <VideoIcon size={10} /> VEO 3 ACTIVE
-                                </span>
-                            )}
-                        </div>
+    <div className="w-full bg-zinc-900/60 border border-zinc-800 rounded-3xl overflow-hidden hover:border-zinc-700 transition-colors">
+      <div className="flex flex-col lg:flex-row h-auto lg:h-[420px]">
+          <div className="lg:w-1/2 relative h-[240px] lg:h-full bg-black border-r border-zinc-800 flex items-center justify-center overflow-hidden">
+                {scene.imageUrl1 ? (
+                    <div className="w-full h-full flex">
+                        <img src={scene.imageUrl1} className="w-1/2 h-full object-cover border-r border-white/10" />
+                        {scene.imageUrl2 ? <img src={scene.imageUrl2} className="w-1/2 h-full object-cover" /> : <div className="w-1/2 h-full bg-zinc-950 flex items-center justify-center text-zinc-800"><ImageIcon size={40} /></div>}
+                        <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-transparent" />
                     </div>
                 ) : (
-                    <div className="w-full h-full flex flex-col items-center justify-center text-zinc-700 gap-4 bg-zinc-950">
-                        {scene.statusImage === 'loading' ? (
-                            <div className="flex flex-col items-center gap-4">
-                                <Loader2 size={48} className="animate-spin text-blue-500" />
-                                <p className="text-xs font-mono uppercase tracking-widest text-blue-400">Generating Visuals...</p>
-                            </div>
-                        ) : (
-                            <>
-                                <Film size={48} className="opacity-20" />
-                                <p className="text-xs font-mono uppercase tracking-widest opacity-40">Visual Placeholder</p>
-                            </>
-                        )}
+                    <div className="flex flex-col items-center gap-3 text-zinc-800">
+                        {scene.statusImage1 === 'loading' ? <Loader2 size={40} className="animate-spin text-blue-500" /> : <Film size={40} />}
+                        <span className="text-[10px] font-mono uppercase tracking-[0.2em]">Visual Pipeline Initializing</span>
                     </div>
                 )}
-              </div>
-              <div className="bg-zinc-950/80 p-6 border-t border-zinc-800">
-                  <div className="flex items-center gap-2 mb-2 text-blue-400 text-xs font-bold uppercase tracking-wider">
-                      <BrainCircuit size={14} /> Agent Reasoning
-                  </div>
-                  <div className="text-sm text-zinc-300 font-mono leading-relaxed opacity-90 min-h-[3em]">
-                      {isResearching ? (
-                          <LiveAgentLog />
-                      ) : (
-                          scene.reasoning ? <Typewriter text={scene.reasoning} /> : <span className="text-zinc-600">Analyzing narrative requirements...</span>
-                      )}
-                  </div>
-              </div>
+                <div className="absolute top-4 left-4 flex gap-2">
+                    <span className="px-3 py-1 rounded-full bg-black/60 border border-white/10 text-[9px] font-bold text-zinc-400 uppercase tracking-widest">DUAL ASSET SCENE</span>
+                </div>
           </div>
-
-          <div className="lg:w-5/12 flex flex-col bg-zinc-900/50">
-              <div className="px-6 py-6 border-b border-white/5 flex items-center justify-between">
-                  <div className="flex items-center gap-3">
-                     <span className="text-4xl font-black text-white/10">{String(index + 1).padStart(2, '0')}</span>
-                     <div className="h-8 w-[1px] bg-white/10" />
-                     <div className="flex items-center gap-2 text-zinc-500">
-                        <Clock size={14} />
-                        <span className="text-xs font-mono">{scene.duration}s</span>
-                     </div>
+          <div className="lg:w-1/2 p-8 flex flex-col justify-between">
+              <div>
+                  <div className="flex items-center justify-between mb-6">
+                      <div className="flex items-center gap-4">
+                          <span className="text-4xl font-black text-white/10">{String(index + 1).padStart(2, '0')}</span>
+                          <div className="h-6 w-[1px] bg-white/10" />
+                          <div className="flex items-center gap-2 text-zinc-500 font-mono text-xs">
+                             <Clock size={12} /> {scene.duration}s
+                          </div>
+                      </div>
+                      <div className="flex gap-2">
+                          <button onClick={onViewResearch} className="p-2 bg-zinc-800 hover:bg-zinc-700 rounded-lg text-zinc-400 transition-colors"><Search size={14}/></button>
+                          <button onClick={onEditScript} className="p-2 bg-zinc-800 hover:bg-zinc-700 rounded-lg text-zinc-400 transition-colors"><Mic size={14}/></button>
+                      </div>
                   </div>
-                  
-                  <div className={`flex items-center gap-2 px-3 py-1 rounded-full border transition-all ${isResearching ? 'bg-blue-500/10 border-blue-500/20 text-blue-400' : isLowIntel ? 'bg-red-500/10 border-red-500/20 text-red-400' : 'bg-green-500/10 border-green-500/20 text-green-400'}`}>
-                      {isResearching ? <Loader2 size={12} className="animate-spin" /> : isLowIntel ? <AlertTriangle size={12} /> : <Trophy size={12} />}
-                      <span className="text-[10px] font-bold tracking-wider">
-                          {isResearching ? 'RESEARCHING...' : `INTEL: ${researchScore}PTS`}
-                      </span>
-                  </div>
+                  <p className="text-xl font-serif text-zinc-200 leading-relaxed italic mb-8">"{scene.script}"</p>
               </div>
-
-              <div className="flex-1 p-6 flex flex-col space-y-6 overflow-y-auto">
-                  
-                  <div>
-                      <div className="flex items-center justify-between mb-3">
-                          <span className="text-xs font-bold text-zinc-500 uppercase tracking-wider flex items-center gap-2">
-                              <Mic size={14} /> Voiceover Script
-                          </span>
-                          {isReviewMode && (
-                            <button onClick={onEditScript} className="text-zinc-600 hover:text-white transition-colors">
-                                <Edit2 size={12} />
-                            </button>
-                          )}
-                      </div>
-                      <p className="text-lg font-serif leading-relaxed text-zinc-200">
-                          "{scene.script}"
-                      </p>
+              
+              {isProduction && (
+                  <div className="grid grid-cols-2 gap-3">
+                      <StatusIndicator label="Voice" status={scene.statusAudio} icon={<Mic size={10} />} />
+                      <StatusIndicator label="Layout" status={'success'} icon={<Layout size={10} />} />
+                      <StatusIndicator label="Visual 1" status={scene.statusImage1} icon={<ImageIcon size={10} />} />
+                      <StatusIndicator label="Visual 2" status={scene.statusImage2} icon={<ImageIcon size={10} />} />
+                      {scene.useVeo && <StatusIndicator label="Motion 1" status={scene.statusVideo1} icon={<VideoIcon size={10} />} />}
+                      {scene.useVeo && <StatusIndicator label="Motion 2" status={scene.statusVideo2} icon={<VideoIcon size={10} />} />}
                   </div>
-
-                  <div className="bg-black/40 rounded-xl border border-white/5 p-4 space-y-3">
-                      <div className="flex items-center justify-between">
-                          <span className="text-xs font-bold text-zinc-500 uppercase tracking-wider flex items-center gap-2">
-                              <Search size={14} /> Research Assets
-                          </span>
-                          <button 
-                            onClick={onViewResearch}
-                            className="text-[10px] bg-zinc-800 hover:bg-zinc-700 text-zinc-300 px-2 py-1 rounded flex items-center gap-1 transition-colors"
-                          >
-                             <Layers size={10} /> VIEW ALL
-                          </button>
-                      </div>
-                      
-                      {isResearching ? (
-                          <div className="flex items-center gap-3 py-2 text-blue-400">
-                              <Loader2 size={16} className="animate-spin" />
-                              <span className="text-xs font-mono animate-pulse">Scanning knowledge base...</span>
-                          </div>
-                      ) : assets.length > 0 ? (
-                          <div className="grid grid-cols-4 gap-2">
-                              {assets.slice(0, 4).map((asset, i) => (
-                                  <div key={i} className="aspect-square bg-zinc-900 rounded-lg overflow-hidden border border-zinc-800 relative group/asset cursor-help" title={asset.title}>
-                                      {asset.type === 'image' ? (
-                                          <img 
-                                            src={asset.proxyUrl} 
-                                            className="w-full h-full object-cover opacity-70 group-hover/asset:opacity-100 transition-opacity" 
-                                            onError={(e) => {
-                                                // Fallback to favicon immediately on error
-                                                e.currentTarget.style.display = 'none';
-                                                e.currentTarget.parentElement?.querySelector('.fallback')?.classList.remove('hidden');
-                                                e.currentTarget.parentElement?.querySelector('.fallback')?.classList.add('flex');
-                                            }}
-                                          />
-                                      ) : asset.type === 'video' ? (
-                                          <div className="w-full h-full bg-zinc-800 flex items-center justify-center text-purple-500">
-                                              <VideoIcon size={16} />
-                                          </div>
-                                      ) : (
-                                          <div className="w-full h-full bg-zinc-950 flex items-center justify-center relative">
-                                              {/* Source Card Mini View */}
-                                              <FileText size={16} className="text-zinc-700" />
-                                              <span className="text-[6px] text-zinc-600 font-mono mt-1 px-1 truncate w-full text-center">{asset.sourceDomain}</span>
-                                          </div>
-                                      )}
-                                      
-                                      {/* Fallback View (Favicon) */}
-                                      <div className="fallback hidden absolute inset-0 bg-zinc-950 items-center justify-center flex-col gap-1 p-1">
-                                          <img 
-                                              src={`https://www.google.com/s2/favicons?domain=${asset.sourceDomain}&sz=64`} 
-                                              className="w-4 h-4 opacity-80"
-                                          />
-                                          <a href={asset.originalUrl} target="_blank" rel="noreferrer" className="text-[6px] text-blue-400 underline" onClick={e => e.stopPropagation()}>Link</a>
-                                      </div>
-
-                                      <div className={`absolute bottom-0 right-0 p-0.5 rounded-tl bg-black/90 border-t border-l border-zinc-800 text-[8px] font-bold z-10 ${asset.type === 'video' ? 'text-purple-400' : asset.type === 'image' ? 'text-green-400' : 'text-zinc-500'}`}>
-                                          {asset.type === 'video' ? '+2.0' : asset.type === 'image' ? '+1.0' : '+0.5'}
-                                      </div>
-                                  </div>
-                              ))}
-                          </div>
-                      ) : (
-                          <div className="py-2 text-xs text-zinc-600 font-mono text-center border border-dashed border-zinc-800 rounded">
-                              Waiting for research phase...
-                          </div>
-                      )}
-                  </div>
-
-                  <div className="flex-1" />
-
-                  {isProduction && (
-                      <div className="space-y-1 bg-zinc-950/50 rounded-xl p-4 border border-zinc-800/50">
-                          <StatusRow label="Neural Voice" status={scene.statusAudio} onRetry={() => onRetryAsset?.(scene.id, 'audio')} icon={<Mic size={14} />} />
-                          <StatusRow label="Scene Composition" status={scene.statusImage} onRetry={() => onRetryAsset?.(scene.id, 'image')} icon={<ImageIcon size={14} />} />
-                          {needsVideo && <StatusRow label="Veo Motion" status={scene.statusVideo} onRetry={() => onRetryAsset?.(scene.id, 'video')} icon={<VideoIcon size={14} />} />}
-                      </div>
-                  )}
-
-                  <div className="space-y-2">
-                       <h5 className="text-xs font-bold text-zinc-500 uppercase tracking-wider flex items-center gap-2">
-                          <Move size={14} /> Motion & Effect
-                       </h5>
-                       <div className="flex flex-wrap gap-2">
-                           {scene.visualEffect !== 'NONE' && (
-                               <span className="px-2 py-1 rounded bg-purple-500/10 text-purple-400 border border-purple-500/20 text-[10px] font-bold uppercase flex items-center gap-1">
-                                   <Cpu size={10} /> {scene.visualEffect}
-                               </span>
-                           )}
-                           {scene.motionIntent?.map((intent, i) => (
-                               <span key={i} className="px-2 py-1 rounded bg-zinc-800 text-zinc-400 border border-zinc-700 text-[10px] font-bold uppercase">
-                                   {intent}
-                               </span>
-                           ))}
-                       </div>
-                  </div>
-              </div>
+              )}
           </div>
       </div>
     </div>

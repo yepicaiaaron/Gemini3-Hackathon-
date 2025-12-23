@@ -1,9 +1,9 @@
 
 export enum PipelineStep {
   IDLE = 'IDLE',
-  ANALYZING = 'ANALYZING', // Agent analyzes input/link
-  STRATEGY = 'STRATEGY', // User confirms strategy
-  RESEARCHING = 'RESEARCHING', // Phase 1.5: Deep Research
+  ANALYZING = 'ANALYZING', 
+  STRATEGY = 'STRATEGY', 
+  RESEARCHING = 'RESEARCHING', 
   NARRATIVE = 'NARRATIVE',
   SCENE_PLANNING = 'SCENE_PLANNING',
   REVIEW = 'REVIEW',
@@ -50,22 +50,22 @@ export type AspectRatio = '16:9' | '9:16' | '1:1';
 
 export type AssetStatus = 'idle' | 'loading' | 'success' | 'error';
 
-// New "Database" Record Structure
 export interface AssetRecord {
-  id: string; // UUID
+  id: string; 
   originalUrl: string;
-  proxyUrl: string; // The "Saved Copy" (Blob URL) viewable in app
-  storagePath: string; // Simulated gs:// path
-  type: 'image' | 'video' | 'source'; // 'source' = text/webpage/document
+  proxyUrl: string; 
+  storagePath: string; 
+  type: 'image' | 'video' | 'source' | 'intel'; 
   title: string;
   sourceDomain: string;
   timestamp: number;
-  isCached: boolean; // TRUE if the binary data is actually in our local DB
+  isCached: boolean;
+  textContent?: string;
 }
 
 export interface Scene {
   id: string;
-  duration: number; // seconds
+  duration: number; 
   type: 'article_card' | 'split_screen' | 'full_chart' | 'diagram' | 'title'; 
   primaryVisual: string;
   script: string;
@@ -74,24 +74,26 @@ export interface Scene {
   effectReasoning: string; 
   reasoning: string; 
   visualResearchPlan: string; 
-  referenceLinks?: string[]; 
   
-  // The Vault
   assets: AssetRecord[]; 
   
-  imagePrompt?: string;
-  imageUrl?: string;
-  videoUrl?: string;
+  imagePrompt1?: string;
+  imagePrompt2?: string;
+  imageUrl1?: string;
+  imageUrl2?: string;
+  videoUrl1?: string;
+  videoUrl2?: string;
+  
   useVeo?: boolean; 
   audioUrl?: string;
   groundingChunks?: GroundingChunk[];
   
-  // Asset Generation Status Tracking
   statusAudio: AssetStatus;
-  statusImage: AssetStatus;
-  statusVideo: AssetStatus;
+  statusImage1: AssetStatus;
+  statusImage2: AssetStatus;
+  statusVideo1: AssetStatus;
+  statusVideo2: AssetStatus;
   
-  // Phase 1.5 Status
   isResearching?: boolean;
 }
 
@@ -115,11 +117,11 @@ export type AgentAction =
   | { type: 'SET_STATUS'; payload: PipelineStep }
   | { type: 'SET_NARRATIVE'; payload: NarrativeBeat[] }
   | { type: 'SET_SCENES'; payload: Scene[] }
-  | { type: 'UPDATE_ASSET_STATUS'; payload: { id: string; type: 'audio' | 'image' | 'video'; status: AssetStatus } }
+  | { type: 'UPDATE_ASSET_STATUS'; payload: { id: string; type: 'audio' | 'image1' | 'image2' | 'video1' | 'video2'; status: AssetStatus } }
   | { type: 'UPDATE_SCENE_RESEARCH_STATUS'; payload: { id: string; isResearching: boolean } }
   | { type: 'INGEST_ASSETS'; payload: { sceneId: string; assets: AssetRecord[] } }
-  | { type: 'UPDATE_SCENE_IMAGE'; payload: { id: string; url: string; groundingChunks?: GroundingChunk[] } }
-  | { type: 'UPDATE_SCENE_VIDEO'; payload: { id: string; url: string } }
+  | { type: 'UPDATE_SCENE_IMAGE'; payload: { id: string; slot: 1 | 2; url: string; groundingChunks?: GroundingChunk[] } }
+  | { type: 'UPDATE_SCENE_VIDEO'; payload: { id: string; slot: 1 | 2; url: string } }
   | { type: 'UPDATE_SCENE_SCRIPT'; payload: { id: string; script: string } }
   | { type: 'UPDATE_SCENE_AUDIO'; payload: { id: string; url: string } }
   | { type: 'ADD_LOG'; payload: string }
