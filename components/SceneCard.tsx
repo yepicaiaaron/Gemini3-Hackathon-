@@ -1,7 +1,7 @@
 
 import React from 'react';
 import { Scene, PipelineStep, AssetStatus } from '../types';
-import { Clock, Film, Search, Mic, Image as ImageIcon, Video as VideoIcon, CheckCircle2, Loader2, XCircle, Activity, Layout } from 'lucide-react';
+import { Clock, Film, Search, Mic, Image as ImageIcon, Video as VideoIcon, CheckCircle2, Loader2, XCircle, Layout, Binary } from 'lucide-react';
 
 interface SceneCardProps {
   scene: Scene;
@@ -28,25 +28,32 @@ export const SceneCard: React.FC<SceneCardProps> = ({ scene, index, status, onVi
   
   return (
     <div className="w-full bg-zinc-900/60 border border-zinc-800 rounded-3xl overflow-hidden hover:border-zinc-700 transition-colors">
-      <div className="flex flex-col lg:flex-row h-auto lg:h-[420px]">
-          <div className="lg:w-1/2 relative h-[240px] lg:h-full bg-black border-r border-zinc-800 flex items-center justify-center overflow-hidden">
+      <div className="flex flex-col lg:flex-row h-auto lg:min-h-[420px]">
+          <div className="lg:w-1/2 relative h-[240px] lg:h-auto bg-black border-r border-zinc-800 flex items-center justify-center overflow-hidden">
                 {scene.imageUrl1 ? (
                     <div className="w-full h-full flex">
-                        <img src={scene.imageUrl1} className="w-1/2 h-full object-cover border-r border-white/10" />
-                        {scene.imageUrl2 ? <img src={scene.imageUrl2} className="w-1/2 h-full object-cover" /> : <div className="w-1/2 h-full bg-zinc-950 flex items-center justify-center text-zinc-800"><ImageIcon size={40} /></div>}
+                        <img src={scene.imageUrl1} className="w-1/2 h-full object-cover border-r border-white/10" alt="Set A" />
+                        {scene.imageUrl2 ? <img src={scene.imageUrl2} className="w-1/2 h-full object-cover" alt="Set B" /> : <div className="w-1/2 h-full bg-zinc-950 flex items-center justify-center text-zinc-800"><ImageIcon size={40} /></div>}
                         <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-transparent" />
+                    </div>
+                ) : scene.previewUrl ? (
+                    <div className="w-full h-full relative">
+                        <img src={scene.previewUrl} className="w-full h-full object-contain filter contrast-125 mix-blend-screen opacity-60" alt="Wireframe Preview" />
+                        <div className="absolute inset-0 bg-black/20 flex items-center justify-center backdrop-blur-[1px]">
+                             <span className="px-4 py-2 bg-black/60 border border-blue-500/30 text-blue-400 font-mono text-[10px] uppercase tracking-widest">Architectural Blueprint</span>
+                        </div>
                     </div>
                 ) : (
                     <div className="flex flex-col items-center gap-3 text-zinc-800">
-                        {scene.statusImage1 === 'loading' ? <Loader2 size={40} className="animate-spin text-blue-500" /> : <Film size={40} />}
-                        <span className="text-[10px] font-mono uppercase tracking-[0.2em]">Visual Pipeline Initializing</span>
+                        {scene.statusPreview === 'loading' ? <Loader2 size={40} className="animate-spin text-blue-500/50" /> : <Binary size={40} />}
+                        <span className="text-[10px] font-mono uppercase tracking-[0.2em]">Archiving Metadata</span>
                     </div>
                 )}
                 <div className="absolute top-4 left-4 flex gap-2">
-                    <span className="px-3 py-1 rounded-full bg-black/60 border border-white/10 text-[9px] font-bold text-zinc-400 uppercase tracking-widest">DUAL ASSET SCENE</span>
+                    <span className="px-3 py-1 rounded-full bg-black/80 border border-white/10 text-[9px] font-bold text-zinc-400 uppercase tracking-widest">PHASE: {isProduction ? 'PRODUCTION' : 'BLUEPRINT'}</span>
                 </div>
           </div>
-          <div className="lg:w-1/2 p-8 flex flex-col justify-between">
+          <div className="lg:w-1/2 p-8 flex flex-col justify-between bg-gradient-to-br from-zinc-900/50 to-black">
               <div>
                   <div className="flex items-center justify-between mb-6">
                       <div className="flex items-center gap-4">
@@ -66,12 +73,12 @@ export const SceneCard: React.FC<SceneCardProps> = ({ scene, index, status, onVi
               
               {isProduction && (
                   <div className="grid grid-cols-2 gap-3">
-                      <StatusIndicator label="Voice" status={scene.statusAudio} icon={<Mic size={10} />} />
-                      <StatusIndicator label="Layout" status={'success'} icon={<Layout size={10} />} />
-                      <StatusIndicator label="Visual 1" status={scene.statusImage1} icon={<ImageIcon size={10} />} />
-                      <StatusIndicator label="Visual 2" status={scene.statusImage2} icon={<ImageIcon size={10} />} />
-                      {scene.useVeo && <StatusIndicator label="Motion 1" status={scene.statusVideo1} icon={<VideoIcon size={10} />} />}
-                      {scene.useVeo && <StatusIndicator label="Motion 2" status={scene.statusVideo2} icon={<VideoIcon size={10} />} />}
+                      <StatusIndicator label="Voiceover" status={scene.statusAudio} icon={<Mic size={10} />} />
+                      <StatusIndicator label="Topology" status={'success'} icon={<Layout size={10} />} />
+                      <StatusIndicator label="Visual A" status={scene.statusImage1} icon={<ImageIcon size={10} />} />
+                      <StatusIndicator label="Visual B" status={scene.statusImage2} icon={<ImageIcon size={10} />} />
+                      {scene.useVeo && <StatusIndicator label="Motion A" status={scene.statusVideo1} icon={<VideoIcon size={10} />} />}
+                      {scene.useVeo && <StatusIndicator label="Motion B" status={scene.statusVideo2} icon={<VideoIcon size={10} />} />}
                   </div>
               )}
           </div>

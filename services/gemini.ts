@@ -17,7 +17,6 @@ const withRetry = async <T>(fn: () => Promise<T>, retries = 3, baseDelay = 3000)
       const isServerOverload = e.status === 503 || e.code === 503;
       if (i === retries - 1 || (!isRateLimit && !isServerOverload)) throw e;
       const delay = baseDelay * Math.pow(2, i);
-      console.warn(`API Error. Retrying in ${delay}ms...`);
       await new Promise(resolve => setTimeout(resolve, delay));
     }
   }
@@ -84,12 +83,12 @@ export const planScenes = async (beats: NarrativeBeat[], aspectRatio: AspectRati
     "duration": 5, 
     "type": "article_card | split_screen | full_chart | diagram | title", 
     "primaryVisual": "detailed summary", 
-    "visualResearchPlan": "search query", 
+    "visualResearchPlan": "search query for visual assets", 
     "script": "VO text", 
     "visualEffect": "Effect name", 
     "reasoning": "Agent reasoning", 
-    "imagePrompt1": "Detailed 8k cinematic prompt for FIRST half of scene",
-    "imagePrompt2": "Distinct 8k cinematic prompt for SECOND half of scene",
+    "imagePrompt1": "Detailed 8k cinematic prompt for FIRST asset of scene",
+    "imagePrompt2": "Distinct 8k cinematic prompt for SECOND asset of scene",
     "useVeo": boolean
   }].`;
 
@@ -104,12 +103,39 @@ export const planScenes = async (beats: NarrativeBeat[], aspectRatio: AspectRati
       ...s, 
       id: s.id || `scene_${i}`, 
       statusAudio: 'idle', 
+      statusPreview: 'idle',
       statusImage1: 'idle', 
       statusImage2: 'idle',
       statusVideo1: 'idle', 
       statusVideo2: 'idle',
       assets: [] 
     }));
+  });
+};
+
+export const generateWireframe = async (prompt: string, aspectRatio: AspectRatio): Promise<string> => {
+  const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+  let arStr = aspectRatio === '9:16' ? "9:16" : aspectRatio === '1:1' ? "1:1" : "16:9";
+  const wireframePrompt = `Minimalist technical line-art drawing of: ${prompt}. Black ink on white background, thin architectural lines, technical blueprint style, zero shading, zero gradients, no gray, purely binary black and white, professional engineering diagram.`;
+  
+  return withRetry(async () => {
+    const response = await ai.models.generateContent({
+        model: IMAGE_MODEL,
+        contents: wireframePrompt,
+        config: { imageConfig: { aspectRatio: arStr, imageSize: "1K" } },
+    });
+    const parts = response.candidates?.[0]?.content?.parts;
+    let imageUrl = '';
+    if (parts) {
+        for (const part of parts) {
+            if (part.inlineData?.data) {
+                imageUrl = `data:${part.inlineData.mimeType};base64,${part.inlineData.data}`;
+                break;
+            }
+        }
+    }
+    if (!imageUrl) throw new Error("Wireframe failed.");
+    return imageUrl;
   });
 };
 
@@ -177,7 +203,7 @@ export const generateSceneImage = async (prompt: string, aspectRatio: AspectRati
   return withRetry(async () => {
     const response = await ai.models.generateContent({
         model: IMAGE_MODEL,
-        contents: `Cinematic 8k: ${prompt}`,
+        contents: `Cinematic masterpiece 8k, detailed high-fidelity render: ${prompt}`,
         config: { tools: [{ googleSearch: {} }], imageConfig: { aspectRatio: arStr, imageSize: "1K" } },
     });
     const parts = response.candidates?.[0]?.content?.parts;
@@ -195,7 +221,6 @@ export const generateSceneImage = async (prompt: string, aspectRatio: AspectRati
   });
 };
 
-// Added missing mixAssets function as requested by the UI logic.
 export const mixAssets = async (assetA: string, assetB: string, aspectRatio: AspectRatio): Promise<{ imageUrl: string, groundingChunks: GroundingChunk[] }> => {
   const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
   let arStr = aspectRatio === '9:16' ? "9:16" : aspectRatio === '1:1' ? "1:1" : "16:9";
@@ -247,7 +272,6 @@ export const generateSpeech = async (text: string, voiceName: string = 'Puck'): 
     const response = await ai.models.generateContent({
         model: TTS_MODEL,
         contents: { parts: [{ text: text }] },
-        // Use Modality.AUDIO from the SDK.
         config: { responseModalities: [Modality.AUDIO], speechConfig: { voiceConfig: { prebuiltVoiceConfig: { voiceName: voiceName } } } },
     });
     const base64Audio = response.candidates?.[0]?.content?.parts?.[0]?.inlineData?.data;

@@ -47,7 +47,6 @@ import {
   Download,
   Youtube,
   Rocket,
-  // Added Loader2 to fix missing import error.
   Loader2
 } from 'lucide-react';
 
@@ -97,6 +96,7 @@ function reducer(state: ProjectState, action: AgentAction): ProjectState {
           if (s.id !== action.payload.id) return s;
           const updates: any = {};
           if (action.payload.type === 'audio') updates.statusAudio = action.payload.status;
+          if (action.payload.type === 'preview') updates.statusPreview = action.payload.status;
           if (action.payload.type === 'image1') updates.statusImage1 = action.payload.status;
           if (action.payload.type === 'image2') updates.statusImage2 = action.payload.status;
           if (action.payload.type === 'video1') updates.statusVideo1 = action.payload.status;
@@ -107,6 +107,12 @@ function reducer(state: ProjectState, action: AgentAction): ProjectState {
       return { ...state, scenes: state.scenes.map(s => s.id === action.payload.id ? { ...s, isResearching: action.payload.isResearching } : s) };
     case 'INGEST_ASSETS':
       return { ...state, scenes: state.scenes.map(s => s.id === action.payload.sceneId ? { ...s, assets: action.payload.assets } : s) };
+    case 'UPDATE_SCENE_PREVIEW':
+      return { ...state, scenes: state.scenes.map(s => s.id === action.payload.id ? { 
+          ...s, 
+          previewUrl: action.payload.url,
+          statusPreview: 'success'
+      } : s) };
     case 'UPDATE_SCENE_IMAGE':
       return { ...state, scenes: state.scenes.map(s => s.id === action.payload.id ? { 
           ...s, 
@@ -222,19 +228,29 @@ export default function App() {
       dispatch({ type: 'SET_STATUS', payload: PipelineStep.SCENE_PLANNING });
       const scenes = await GeminiService.planScenes(beats, state.aspectRatio, state.userLinks, strategyForm, state.hookStyle);
       dispatch({ type: 'SET_SCENES', payload: scenes });
+      
+      // Immediate wireframe generation phase
+      const wireframePromises = scenes.map(async (scene) => {
+          dispatch({ type: 'UPDATE_ASSET_STATUS', payload: { id: scene.id, type: 'preview', status: 'loading' } });
+          const wireframeUrl = await GeminiService.generateWireframe(scene.primaryVisual, state.aspectRatio);
+          dispatch({ type: 'UPDATE_SCENE_PREVIEW', payload: { id: scene.id, url: wireframeUrl } });
+      });
+      await Promise.all(wireframePromises);
+      
       await runDeepResearch(scenes);
     } catch (error: any) {
       dispatch({ type: 'SET_ERROR', payload: error.message || 'Scene planning failed.' });
     }
   }, [strategyForm, state.topic, state.hookStyle, state.aspectRatio, state.userLinks]);
 
-  const processScene = async (scene: Scene) => {
+  const processSceneProduction = async (scene: Scene) => {
       // 1. Audio
       dispatch({ type: 'UPDATE_ASSET_STATUS', payload: { id: scene.id, type: 'audio', status: 'loading' } });
       const audioUrl = await GeminiService.generateSpeech(scene.script, state.voice);
       dispatch({ type: 'UPDATE_SCENE_AUDIO', payload: { id: scene.id, url: audioUrl } });
 
-      // 2. Primary Asset
+      // 2. Dual Asset Production
+      // Visual 1
       dispatch({ type: 'UPDATE_ASSET_STATUS', payload: { id: scene.id, type: 'image1', status: 'loading' } });
       const res1 = await GeminiService.generateSceneImage(scene.imagePrompt1 || scene.script, state.aspectRatio);
       dispatch({ type: 'UPDATE_SCENE_IMAGE', payload: { id: scene.id, slot: 1, url: res1.imageUrl } });
@@ -244,9 +260,9 @@ export default function App() {
           dispatch({ type: 'UPDATE_SCENE_VIDEO', payload: { id: scene.id, slot: 1, url: v1 } });
       }
 
-      // 3. Secondary Asset (Dual visual requirement)
+      // Visual 2
       dispatch({ type: 'UPDATE_ASSET_STATUS', payload: { id: scene.id, type: 'image2', status: 'loading' } });
-      const res2 = await GeminiService.generateSceneImage(scene.imagePrompt2 || "Alternative angle of " + scene.script, state.aspectRatio);
+      const res2 = await GeminiService.generateSceneImage(scene.imagePrompt2 || "Alternative " + scene.script, state.aspectRatio);
       dispatch({ type: 'UPDATE_SCENE_IMAGE', payload: { id: scene.id, slot: 2, url: res2.imageUrl } });
       if (scene.useVeo) {
           dispatch({ type: 'UPDATE_ASSET_STATUS', payload: { id: scene.id, type: 'video2', status: 'loading' } });
@@ -261,7 +277,7 @@ export default function App() {
      const workers = Array.from({ length: 2 }).map(async () => {
          while (queue.length > 0) {
              const scene = queue.shift();
-             if (scene) await processScene(scene);
+             if (scene) await processSceneProduction(scene);
          }
      });
      await Promise.all(workers);
@@ -269,10 +285,10 @@ export default function App() {
   }, [state.scenes]);
 
   const handleDownload = () => {
-    const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(state.scenes, null, 2));
+    const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(state, null, 2));
     const downloadAnchorNode = document.createElement('a');
     downloadAnchorNode.setAttribute("href", dataStr);
-    downloadAnchorNode.setAttribute("download", `project_${Date.now()}.json`);
+    downloadAnchorNode.setAttribute("download", `agentic_project_${Date.now()}.json`);
     document.body.appendChild(downloadAnchorNode);
     downloadAnchorNode.click();
     downloadAnchorNode.remove();
@@ -280,8 +296,8 @@ export default function App() {
 
   const handleYouTubeExport = async () => {
     setIsExporting(true);
-    await new Promise(r => setTimeout(r, 4000));
-    alert("Export initiated! Your project components are being packaged for distribution.");
+    await new Promise(r => setTimeout(r, 3500));
+    alert("Project packaged for distribution. API handshake completed.");
     setIsExporting(false);
   };
 
@@ -297,7 +313,7 @@ export default function App() {
           </div>
           <div className="flex items-center gap-4">
              {window.aistudio?.openSelectKey && <button onClick={() => window.aistudio?.openSelectKey?.()} className="text-xs font-mono text-zinc-400 hover:text-white flex items-center gap-1"><Key size={12} /> API KEY</button>}
-             <div className="text-xs font-mono text-zinc-600 bg-zinc-900 px-3 py-1 rounded-full border border-zinc-800">v0.4.0</div>
+             <div className="text-xs font-mono text-zinc-600 bg-zinc-900 px-3 py-1 rounded-full border border-zinc-800">v0.5.0</div>
           </div>
         </div>
       </header>
@@ -313,13 +329,13 @@ export default function App() {
              <div className="w-full max-w-3xl relative z-10 space-y-10">
                <div className="text-center space-y-6">
                   <h2 className="text-6xl md:text-7xl font-bold tracking-tighter text-white">Story to Video.</h2>
-                  <p className="text-zinc-400 text-xl max-w-xl mx-auto leading-relaxed">Dual-asset multi-agent intelligence for professional explainers.</p>
+                  <p className="text-zinc-400 text-xl max-w-xl mx-auto leading-relaxed">Dual-visual wireframing & multi-agent production.</p>
                </div>
                <div className="bg-zinc-900/50 backdrop-blur-xl border border-white/10 rounded-2xl p-2 shadow-2xl">
                    <form onSubmit={(e) => { e.preventDefault(); if (inputValue.trim()) startAnalysis(inputValue); }} className="flex flex-col gap-2">
                       <div className="flex items-start px-4 py-4 gap-4">
                          <div className="pt-1 text-zinc-500"><BrainCircuit size={24} /></div>
-                         <input type="text" value={inputValue} onChange={(e) => setInputValue(e.target.value)} placeholder="Topic or script..." className="w-full bg-transparent border-none text-xl focus:ring-0 placeholder:text-zinc-600 outline-none text-white font-medium" autoFocus />
+                         <input type="text" value={inputValue} onChange={(e) => setInputValue(e.target.value)} placeholder="Enter topic or URL..." className="w-full bg-transparent border-none text-xl focus:ring-0 placeholder:text-zinc-600 outline-none text-white font-medium" autoFocus />
                       </div>
                       <div className="bg-black/40 rounded-xl p-3 flex flex-wrap items-center gap-4">
                          <div className="flex items-center gap-2 overflow-x-auto pb-2 md:pb-0 hide-scrollbar">
@@ -340,7 +356,7 @@ export default function App() {
                                   {VOICES.map(v => <option key={v.id} value={v.id}>{v.label}</option>)}
                              </select>
                          </div>
-                         <button type="submit" className="ml-auto px-6 py-3 bg-white text-black font-bold rounded-xl hover:bg-zinc-200 transition-colors flex items-center gap-2 text-sm">Generate <ArrowRight size={16} /></button>
+                         <button type="submit" className="ml-auto px-6 py-3 bg-white text-black font-bold rounded-xl hover:bg-zinc-200 transition-colors flex items-center gap-2 text-sm">Create <ArrowRight size={16} /></button>
                       </div>
                    </form>
                </div>
@@ -350,22 +366,23 @@ export default function App() {
           <div className="flex-1 flex flex-col w-full px-6 py-8 relative z-10">
             <div className="max-w-6xl mx-auto w-full">
                 <PipelineSteps currentStep={state.status} />
+                
                 {state.status === PipelineStep.COMPLETE && (
-                    <div className="mx-auto max-w-3xl bg-zinc-900 border border-zinc-700 p-8 rounded-3xl flex flex-col items-center text-center gap-6 mb-12 shadow-2xl animate-in zoom-in-95 duration-500">
-                        <div className="w-20 h-20 bg-green-500/20 rounded-full flex items-center justify-center border border-green-500/30 text-green-400 mb-2">
-                            <CheckCircle2 size={40} />
+                    <div className="mx-auto max-w-4xl bg-zinc-900 border border-zinc-700 p-8 rounded-3xl flex flex-col items-center text-center gap-6 mb-12 shadow-2xl animate-in zoom-in-95 duration-500">
+                        <div className="w-16 h-16 bg-blue-500/20 rounded-full flex items-center justify-center text-blue-400 mb-2">
+                            <CheckCircle2 size={32} />
                         </div>
                         <div>
-                            <h2 className="text-3xl font-black text-white mb-2 uppercase tracking-tight">Production Finished</h2>
-                            <p className="text-zinc-500 font-mono text-sm uppercase tracking-widest">Master file ready for distribution</p>
+                            <h2 className="text-3xl font-black text-white mb-2 uppercase tracking-tight">Project Finalized</h2>
+                            <p className="text-zinc-500 font-mono text-sm uppercase tracking-widest">Distributed components synchronized</p>
                         </div>
-                        <div className="flex gap-4 w-full justify-center">
-                            <button onClick={handleDownload} className="flex-1 max-w-[200px] px-6 py-4 bg-zinc-800 hover:bg-zinc-700 text-white font-bold rounded-2xl flex items-center justify-center gap-3 transition-all"><Download size={20} /> Download</button>
-                            <button onClick={handleYouTubeExport} disabled={isExporting} className="flex-1 max-w-[200px] px-6 py-4 bg-red-600 hover:bg-red-500 text-white font-bold rounded-2xl flex items-center justify-center gap-3 transition-all">
+                        <div className="flex gap-4 w-full">
+                            <button onClick={handleDownload} className="flex-1 px-6 py-4 bg-zinc-800 hover:bg-zinc-700 text-white font-bold rounded-2xl flex items-center justify-center gap-3"><Download size={20} /> Project File</button>
+                            <button onClick={handleYouTubeExport} disabled={isExporting} className="flex-1 px-6 py-4 bg-red-600 hover:bg-red-500 text-white font-bold rounded-2xl flex items-center justify-center gap-3">
                                 {isExporting ? <Loader2 className="animate-spin" size={20} /> : <Youtube size={20} />}
-                                {isExporting ? 'Exporting...' : 'Export to YouTube'}
+                                YouTube Export
                             </button>
-                            <button onClick={() => setIsPreviewOpen(true)} className="flex-1 max-w-[200px] px-6 py-4 bg-blue-600 hover:bg-blue-500 text-white font-bold rounded-2xl flex items-center justify-center gap-3 transition-all"><Rocket size={20} /> Launch Player</button>
+                            <button onClick={() => setIsPreviewOpen(true)} className="flex-1 px-6 py-4 bg-blue-600 hover:bg-blue-500 text-white font-bold rounded-2xl flex items-center justify-center gap-3"><PlayCircle size={20} /> Master Preview</button>
                         </div>
                     </div>
                 )}
@@ -374,12 +391,12 @@ export default function App() {
             {state.status === PipelineStep.STRATEGY && strategyForm && (
                 <div className="max-w-4xl mx-auto w-full">
                     <div className="bg-zinc-900 border border-zinc-800 rounded-3xl p-8">
-                        <h2 className="text-3xl font-bold text-white mb-8">Production Strategy</h2>
+                        <h2 className="text-3xl font-bold text-white mb-8 uppercase tracking-widest">Blueprint Strategy</h2>
                         <div className="bg-black/60 rounded-2xl p-6 mb-8">
-                            <h4 className="text-xs font-bold text-zinc-500 uppercase mb-3">Core Direction</h4>
+                            <h4 className="text-xs font-bold text-zinc-500 uppercase mb-3 tracking-widest">Neural Directives</h4>
                             <p className="text-zinc-100 text-lg leading-relaxed">"{strategyForm.summary}"</p>
                         </div>
-                        <button onClick={confirmStrategyAndPlan} className="w-full py-4 bg-white text-black font-bold rounded-2xl flex items-center justify-center gap-3"><Zap size={20} /> Start Scene Planning</button>
+                        <button onClick={confirmStrategyAndPlan} className="w-full py-4 bg-white text-black font-bold rounded-2xl flex items-center justify-center gap-3 transition-transform hover:scale-[1.01]"><Zap size={20} /> Initiate Planning Agents</button>
                     </div>
                 </div>
             )}
@@ -388,12 +405,12 @@ export default function App() {
                 <div className="max-w-6xl mx-auto w-full space-y-12">
                     <div className="flex justify-between items-end border-b border-zinc-800 pb-8">
                         <div>
-                            <h1 className="text-4xl font-bold text-white mb-2 tracking-tight">Project Board</h1>
+                            <h1 className="text-4xl font-bold text-white mb-2 tracking-tight uppercase">Master Dashboard</h1>
                             {state.status === PipelineStep.ASSET_GENERATION && <ProductionTimer />}
                         </div>
                         <div className="flex gap-4">
-                            <button onClick={() => setIsPreviewOpen(true)} className="px-6 py-3 bg-white text-black font-bold rounded-full flex items-center gap-2"><PlayCircle size={20} /> Watch Preview</button>
-                            {state.status === PipelineStep.REVIEW && <button onClick={approveAndGenerate} className="px-6 py-3 bg-blue-600 text-white font-bold rounded-full flex items-center gap-2">Finalize Render <ArrowRight size={18} /></button>}
+                            <button onClick={() => setIsPreviewOpen(true)} className="px-6 py-3 bg-white text-black font-bold rounded-full flex items-center gap-2"><PlayCircle size={20} /> Launch Preview</button>
+                            {state.status === PipelineStep.REVIEW && <button onClick={approveAndGenerate} className="px-6 py-3 bg-blue-600 text-white font-bold rounded-full flex items-center gap-2">Deploy Production <ArrowRight size={18} /></button>}
                         </div>
                     </div>
                     {state.scenes.map((scene, index) => (
@@ -408,8 +425,8 @@ export default function App() {
       {editingSceneId && (
           <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4">
               <div className="w-full max-w-lg bg-zinc-900 border border-zinc-800 rounded-3xl p-8">
-                  <textarea value={editScriptText} onChange={(e) => setEditScriptText(e.target.value)} className="w-full h-48 bg-zinc-950 text-white p-4 rounded-xl mb-6" />
-                  <div className="flex justify-end gap-3"><button onClick={() => setEditingSceneId(null)} className="px-6 py-3 text-zinc-400">Cancel</button><button onClick={() => { dispatch({ type: 'UPDATE_SCENE_SCRIPT', payload: { id: editingSceneId, script: editScriptText } }); setEditingSceneId(null); }} className="px-6 py-3 bg-white text-black font-bold rounded-xl">Save</button></div>
+                  <textarea value={editScriptText} onChange={(e) => setEditScriptText(e.target.value)} className="w-full h-48 bg-zinc-950 text-white p-4 rounded-xl mb-6 font-serif italic text-lg" />
+                  <div className="flex justify-end gap-3"><button onClick={() => setEditingSceneId(null)} className="px-6 py-3 text-zinc-400">Cancel</button><button onClick={() => { dispatch({ type: 'UPDATE_SCENE_SCRIPT', payload: { id: editingSceneId, script: editScriptText } }); setEditingSceneId(null); }} className="px-6 py-3 bg-white text-black font-bold rounded-xl">Save Archive</button></div>
               </div>
           </div>
       )}

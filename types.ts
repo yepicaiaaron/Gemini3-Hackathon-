@@ -77,6 +77,7 @@ export interface Scene {
   
   assets: AssetRecord[]; 
   
+  previewUrl?: string; // B&W Wireframe
   imagePrompt1?: string;
   imagePrompt2?: string;
   imageUrl1?: string;
@@ -89,6 +90,7 @@ export interface Scene {
   groundingChunks?: GroundingChunk[];
   
   statusAudio: AssetStatus;
+  statusPreview: AssetStatus;
   statusImage1: AssetStatus;
   statusImage2: AssetStatus;
   statusVideo1: AssetStatus;
@@ -117,9 +119,10 @@ export type AgentAction =
   | { type: 'SET_STATUS'; payload: PipelineStep }
   | { type: 'SET_NARRATIVE'; payload: NarrativeBeat[] }
   | { type: 'SET_SCENES'; payload: Scene[] }
-  | { type: 'UPDATE_ASSET_STATUS'; payload: { id: string; type: 'audio' | 'image1' | 'image2' | 'video1' | 'video2'; status: AssetStatus } }
+  | { type: 'UPDATE_ASSET_STATUS'; payload: { id: string; type: 'audio' | 'preview' | 'image1' | 'image2' | 'video1' | 'video2'; status: AssetStatus } }
   | { type: 'UPDATE_SCENE_RESEARCH_STATUS'; payload: { id: string; isResearching: boolean } }
   | { type: 'INGEST_ASSETS'; payload: { sceneId: string; assets: AssetRecord[] } }
+  | { type: 'UPDATE_SCENE_PREVIEW'; payload: { id: string; url: string } }
   | { type: 'UPDATE_SCENE_IMAGE'; payload: { id: string; slot: 1 | 2; url: string; groundingChunks?: GroundingChunk[] } }
   | { type: 'UPDATE_SCENE_VIDEO'; payload: { id: string; slot: 1 | 2; url: string } }
   | { type: 'UPDATE_SCENE_SCRIPT'; payload: { id: string; script: string } }
