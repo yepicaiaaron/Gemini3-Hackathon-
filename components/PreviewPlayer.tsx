@@ -1,52 +1,14 @@
 
 import React, { useState, useEffect, useRef } from 'react';
 import { Scene, VisualEffect } from '../types';
-import { X, Play, Pause, SkipForward, SkipBack, Volume2, VolumeX, Cpu, Video, Image as ImageIcon, Layers } from 'lucide-react';
+import { X, Play, Pause, Volume2, VolumeX, Cpu, Video, Image as ImageIcon, Layers, Loader2 } from 'lucide-react';
 
 interface PreviewPlayerProps {
   scenes: Scene[];
   onClose: () => void;
 }
 
-const VERTEX_SHADER = `
-  attribute vec2 position;
-  varying vec2 vUv;
-  void main() {
-    vUv = position * 0.5 + 0.5;
-    vUv.y = 1.0 - vUv.y; 
-    gl_Position = vec4(position, 0.0, 1.0);
-  }
-`;
-
-const FRAGMENT_SHADER = `
-  precision mediump float;
-  varying vec2 vUv;
-  uniform sampler2D uTexture;
-  uniform float uTime;
-  uniform vec2 uResolution;
-  uniform int uEffectType; 
-
-  float random(vec2 st) { return fract(sin(dot(st.xy, vec2(12.9898,78.233))) * 43758.5453123); }
-
-  void main() {
-    vec2 uv = vUv;
-    if (uEffectType == 1) { // VHS
-       float y = uv.y * uResolution.y;
-       float scanline = sin(y * 0.5 + uTime * 10.0);
-       vec2 offset = vec2(0.005 * sin(uTime * 20.0 + y * 0.1), 0.0);
-       vec4 r = texture2D(uTexture, uv + offset);
-       vec4 g = texture2D(uTexture, uv);
-       vec4 b = texture2D(uTexture, uv - offset);
-       gl_FragColor = vec4(r.r, g.g, b.b, 1.0) * (0.9 + 0.1 * scanline);
-    } else if (uEffectType == 2) { // GLITCH
-       float split = 0.02 * sin(uTime * 20.0);
-       vec2 disp = vec2(step(0.95, random(vec2(floor(uv.y * 10.0), floor(uTime * 15.0)))) * 0.1, 0.0);
-       gl_FragColor = texture2D(uTexture, uv + disp + vec2(split, 0.0));
-    } else {
-       gl_FragColor = texture2D(uTexture, uv);
-    }
-  }
-`;
+const CROSSFADE_DURATION = 800; // ms
 
 export const PreviewPlayer: React.FC<PreviewPlayerProps> = ({ scenes, onClose }) => {
   const [currentSceneIndex, setCurrentSceneIndex] = useState(0);
@@ -54,128 +16,193 @@ export const PreviewPlayer: React.FC<PreviewPlayerProps> = ({ scenes, onClose })
   const [isMuted, setIsMuted] = useState(false);
   const [progress, setProgress] = useState(0);
   const [visualSlot, setVisualSlot] = useState<1 | 2>(1);
+  const [isTransitioning, setIsTransitioning] = useState(false);
   
-  const canvasRef = useRef<HTMLCanvasElement>(null);
-  const videoRef = useRef<HTMLVideoElement>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
-  const animationRef = useRef<number>(0);
-  const startTimeRef = useRef<number>(Date.now());
-  const glRef = useRef<WebGLRenderingContext | null>(null);
-  const programRef = useRef<WebGLProgram | null>(null);
-  const textureRef = useRef<WebGLTexture | null>(null);
-  const imageCache = useRef<Map<string, HTMLImageElement>>(new Map());
+  const lastUpdateRef = useRef<number>(Date.now());
+  const timerRef = useRef<number>(0);
 
   const currentScene = scenes[currentSceneIndex];
-  const isVideo = (visualSlot === 1 && !!currentScene.videoUrl1) || (visualSlot === 2 && !!currentScene.videoUrl2);
-
-  useEffect(() => {
-    const gl = canvasRef.current?.getContext('webgl');
-    if (!gl) return;
-    glRef.current = gl;
-
-    const createShader = (type: number, src: string) => {
-      const s = gl.createShader(type)!;
-      gl.shaderSource(s, src);
-      gl.compileShader(s);
-      return s;
-    };
-
-    const program = gl.createProgram()!;
-    gl.attachShader(program, createShader(gl.VERTEX_SHADER, VERTEX_SHADER));
-    gl.attachShader(program, createShader(gl.FRAGMENT_SHADER, FRAGMENT_SHADER));
-    gl.linkProgram(program);
-    programRef.current = program;
-
-    const buf = gl.createBuffer();
-    gl.bindBuffer(gl.ARRAY_BUFFER, buf);
-    gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1,-1, 1,-1, -1,1, -1,1, 1,-1, 1,1]), gl.STATIC_DRAW);
-
-    textureRef.current = gl.createTexture();
-    gl.bindTexture(gl.TEXTURE_2D, textureRef.current);
-    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
-    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
-    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
-  }, []);
-
-  useEffect(() => {
-    if (isVideo || !isPlaying || !glRef.current) return;
-    const gl = glRef.current;
-    const program = programRef.current!;
-    const imgUrl = visualSlot === 1 ? currentScene.imageUrl1 : currentScene.imageUrl2;
-    
-    if (imgUrl && !imageCache.current.has(imgUrl)) {
-      const i = new Image(); i.crossOrigin = "anonymous"; i.src = imgUrl; i.onload = () => imageCache.current.set(imgUrl, i);
-    }
-
-    const render = () => {
-      if (!canvasRef.current) return;
-      gl.viewport(0, 0, canvasRef.current.width = canvasRef.current.clientWidth, canvasRef.current.height = canvasRef.current.clientHeight);
-      gl.useProgram(program);
-      const img = imageCache.current.get(imgUrl || '');
-      gl.bindTexture(gl.TEXTURE_2D, textureRef.current);
-      if (img) gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, img);
-      else gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, 1, 1, 0, gl.RGBA, gl.UNSIGNED_BYTE, new Uint8Array([0,0,0,255]));
-      
-      gl.uniform1f(gl.getUniformLocation(program, 'uTime'), (Date.now() - startTimeRef.current)/1000);
-      gl.uniform2f(gl.getUniformLocation(program, 'uResolution'), canvasRef.current.width, canvasRef.current.height);
-      gl.uniform1i(gl.getUniformLocation(program, 'uEffectType'), currentScene.visualEffect === 'VHS' ? 1 : currentScene.visualEffect === 'GLITCH' ? 2 : 0);
-      
-      const pos = gl.getAttribLocation(program, 'position');
-      gl.enableVertexAttribArray(pos);
-      gl.vertexAttribPointer(pos, 2, gl.FLOAT, false, 0, 0);
-      gl.drawArrays(gl.TRIANGLES, 0, 6);
-      animationRef.current = requestAnimationFrame(render);
-    };
-    render();
-    return () => cancelAnimationFrame(animationRef.current);
-  }, [isPlaying, currentSceneIndex, visualSlot, isVideo]);
-
-  useEffect(() => {
-    if (isVideo && videoRef.current) {
-        videoRef.current.src = (visualSlot === 1 ? currentScene.videoUrl1 : currentScene.videoUrl2) || '';
-        if (isPlaying) videoRef.current.play().catch(() => {});
-    }
-  }, [isVideo, visualSlot, currentSceneIndex, isPlaying]);
-
+  
+  // Audio handling
   useEffect(() => {
     if (audioRef.current) audioRef.current.pause();
     if (currentScene.audioUrl) {
-      const a = new Audio(currentScene.audioUrl); a.volume = isMuted ? 0 : 1; audioRef.current = a;
+      const a = new Audio(currentScene.audioUrl);
+      a.volume = isMuted ? 0 : 1;
+      audioRef.current = a;
       if (isPlaying) a.play().catch(()=>{});
     }
+    return () => { if(audioRef.current) audioRef.current.pause(); };
   }, [currentSceneIndex, currentScene.audioUrl]);
 
   useEffect(() => {
+    if (audioRef.current) audioRef.current.volume = isMuted ? 0 : 1;
+  }, [isMuted]);
+
+  useEffect(() => {
+    if (audioRef.current) {
+        if (isPlaying) audioRef.current.play().catch(()=>{});
+        else audioRef.current.pause();
+    }
+  }, [isPlaying]);
+
+  // Main playback timer
+  useEffect(() => {
     if (!isPlaying) return;
-    const interval = setInterval(() => {
-      setProgress(p => {
-        if (p >= 100) {
-          if (currentSceneIndex < scenes.length - 1) { setCurrentSceneIndex(i => i + 1); setVisualSlot(1); return 0; }
-          setIsPlaying(false); return 100;
+    
+    lastUpdateRef.current = Date.now();
+    const tick = () => {
+      const now = Date.now();
+      const delta = now - lastUpdateRef.current;
+      lastUpdateRef.current = now;
+
+      setProgress(prev => {
+        const increment = (delta / (currentScene.duration * 1000)) * 100;
+        const next = prev + increment;
+
+        // Visual Slot Transition (A -> B at 50%)
+        if (prev < 50 && next >= 50 && !isTransitioning) {
+            triggerTransition(2);
         }
-        if (p > 50 && visualSlot === 1) setVisualSlot(2);
-        return p + (100 / (currentScene.duration * 20));
+
+        // Scene Transition (End of Scene)
+        if (next >= 100) {
+          if (currentSceneIndex < scenes.length - 1) {
+             triggerSceneTransition();
+             return 0;
+          } else {
+             setIsPlaying(false);
+             return 100;
+          }
+        }
+        return next;
       });
-    }, 50);
-    return () => clearInterval(interval);
-  }, [currentSceneIndex, isPlaying, visualSlot]);
+      timerRef.current = requestAnimationFrame(tick);
+    };
+
+    timerRef.current = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(timerRef.current);
+  }, [isPlaying, currentSceneIndex, currentScene.duration, isTransitioning]);
+
+  const triggerTransition = (targetSlot: 1 | 2) => {
+    setIsTransitioning(true);
+    setTimeout(() => {
+      setVisualSlot(targetSlot);
+      setIsTransitioning(false);
+    }, CROSSFADE_DURATION / 2);
+  };
+
+  const triggerSceneTransition = () => {
+      setIsTransitioning(true);
+      setTimeout(() => {
+          setCurrentSceneIndex(prev => prev + 1);
+          setVisualSlot(1);
+          setProgress(0);
+          setIsTransitioning(false);
+      }, CROSSFADE_DURATION / 2);
+  };
+
+  const renderAsset = (slot: 1 | 2) => {
+      const img = slot === 1 ? currentScene.imageUrl1 : currentScene.imageUrl2;
+      const vid = slot === 1 ? currentScene.videoUrl1 : currentScene.videoUrl2;
+
+      if (vid) {
+          return (
+              <video 
+                src={vid} 
+                className="w-full h-full object-cover" 
+                autoPlay 
+                muted 
+                loop 
+                playsInline 
+              />
+          );
+      }
+      if (img) {
+          return (
+              <img 
+                src={img} 
+                className="w-full h-full object-cover transition-transform duration-[10000ms] scale-100 hover:scale-110" 
+                alt="Scene visual" 
+              />
+          );
+      }
+      return (
+          <div className="w-full h-full flex items-center justify-center bg-zinc-900">
+              <Loader2 className="text-zinc-700 animate-spin" size={48} />
+          </div>
+      );
+  };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/95 p-4 animate-in fade-in duration-300">
-      <div className="relative w-full max-w-5xl bg-zinc-950 rounded-2xl overflow-hidden border border-zinc-800 flex flex-col">
-        <div className="flex items-center justify-between p-4 bg-zinc-900/50">
-           <h3 className="font-mono text-sm text-zinc-400">PROJECT PLAYER /// {currentScene.id} [ASSET {visualSlot}/2]</h3>
-           <button onClick={onClose} className="text-zinc-400 hover:text-white"><X size={20} /></button>
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/98 p-4 md:p-12 animate-in fade-in duration-500 backdrop-blur-3xl">
+      <div className="relative w-full max-w-6xl aspect-video bg-black rounded-3xl overflow-hidden shadow-[0_0_100px_rgba(0,0,0,1)] border border-white/5 flex flex-col group">
+        
+        {/* Top Overlay */}
+        <div className="absolute top-0 left-0 right-0 z-30 p-6 flex items-center justify-between bg-gradient-to-b from-black/80 to-transparent opacity-0 group-hover:opacity-100 transition-opacity">
+           <div className="flex items-center gap-4">
+              <div className="px-3 py-1 bg-blue-600 rounded-md font-mono text-[10px] font-black uppercase tracking-widest text-white">MASTER PREVIEW</div>
+              <h3 className="font-mono text-xs text-zinc-400 uppercase tracking-tighter">NODE: {currentScene.id} // SEQUENCE: {currentSceneIndex + 1}/{scenes.length}</h3>
+           </div>
+           <button onClick={onClose} className="p-2 hover:bg-white/10 rounded-full text-zinc-400 hover:text-white transition-colors"><X size={24} /></button>
         </div>
-        <div className="relative aspect-video bg-black overflow-hidden group">
-           {isVideo ? <video ref={videoRef} className="w-full h-full object-cover" muted={isMuted} playsInline /> : <canvas ref={canvasRef} className="w-full h-full object-contain" />}
-           <div className="absolute bottom-12 left-0 right-0 text-center px-12 z-10">
-             <span className="inline-block bg-black/70 text-white px-6 py-3 rounded-xl text-xl font-bold backdrop-blur-md border border-white/10">{currentScene.script}</span>
-           </div>
-           <div className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity bg-black/40">
-              <button onClick={() => setIsPlaying(!isPlaying)} className="p-6 bg-white text-black rounded-full">{isPlaying ? <Pause size={32} /> : <Play size={32} />}</button>
-           </div>
-           <div className="absolute bottom-0 left-0 right-0 h-1 bg-zinc-800"><div className="h-full bg-blue-500" style={{ width: `${progress}%` }} /></div>
+
+        {/* Seamless Asset Layer System */}
+        <div className="flex-1 relative overflow-hidden">
+            {/* Base Layer */}
+            <div className={`absolute inset-0 z-0 transition-opacity duration-${CROSSFADE_DURATION} ${isTransitioning ? 'opacity-30' : 'opacity-100'}`}>
+                {renderAsset(visualSlot)}
+            </div>
+
+            {/* Subtitle / Script Layer */}
+            <div className="absolute bottom-16 left-0 right-0 z-20 text-center px-16 pointer-events-none">
+                <div className="inline-block px-10 py-5 bg-black/80 backdrop-blur-2xl rounded-2xl border border-white/10 shadow-2xl animate-in slide-in-from-bottom-4 duration-700">
+                    <p className="text-white text-2xl font-serif italic leading-relaxed tracking-tight max-w-4xl mx-auto">
+                        {currentScene.script}
+                    </p>
+                </div>
+            </div>
+
+            {/* Effects Overlay (Optional: VHS, Glitch via CSS filters if requested) */}
+            <div className={`absolute inset-0 z-10 pointer-events-none bg-blue-500/5 mix-blend-overlay ${currentScene.visualEffect === 'VHS' ? 'animate-scanline' : ''}`} />
+        </div>
+
+        {/* Progress Control Bar */}
+        <div className="h-1.5 w-full bg-zinc-900/50 relative z-30">
+            <div className="h-full bg-blue-500 transition-all duration-300 ease-linear shadow-[0_0_15px_rgba(59,130,246,0.5)]" style={{ width: `${progress}%` }} />
+            
+            {/* Play/Pause Center Button (Visible on Hover) */}
+            <div className="absolute inset-0 -top-[400px] flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none">
+                <button onClick={() => setIsPlaying(!isPlaying)} className="p-10 bg-white/10 backdrop-blur-xl border border-white/20 rounded-full text-white pointer-events-auto hover:scale-110 transition-transform shadow-2xl">
+                    {isPlaying ? <Pause size={48} fill="white" /> : <Play size={48} fill="white" />}
+                </button>
+            </div>
+        </div>
+
+        {/* Footer Controls */}
+        <div className="p-6 bg-zinc-950 flex items-center justify-between relative z-30">
+            <div className="flex items-center gap-6">
+                <div className="flex items-center gap-2">
+                    <button onClick={() => setIsMuted(!isMuted)} className="text-zinc-500 hover:text-white transition-colors">
+                        {isMuted ? <VolumeX size={18} /> : <Volume2 size={18} />}
+                    </button>
+                    <div className="w-24 h-1 bg-zinc-800 rounded-full overflow-hidden">
+                        <div className="h-full bg-zinc-400" style={{ width: isMuted ? '0%' : '80%' }} />
+                    </div>
+                </div>
+                <div className="h-4 w-[1px] bg-zinc-800" />
+                <span className="text-[10px] font-mono text-zinc-600 uppercase tracking-widest">FPS: 24 // BUFFER: SYNCED</span>
+            </div>
+            
+            <div className="flex items-center gap-4">
+               <span className="text-[10px] font-mono text-blue-500 uppercase tracking-[0.2em] animate-pulse">Live Playback Intelligence</span>
+               <div className="flex gap-1">
+                   <div className="w-1 h-1 rounded-full bg-blue-500" />
+                   <div className="w-1 h-1 rounded-full bg-blue-500/50" />
+                   <div className="w-1 h-1 rounded-full bg-blue-500/20" />
+               </div>
+            </div>
         </div>
       </div>
     </div>
