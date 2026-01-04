@@ -1,7 +1,7 @@
 
 import React from 'react';
-import { Scene, PipelineStep, AssetStatus } from '../types';
-import { Clock, Film, Search, Mic, Image as ImageIcon, Video as VideoIcon, CheckCircle2, Loader2, XCircle, Layout, Binary } from 'lucide-react';
+import { Scene, PipelineStep, AssetStatus, TransitionType } from '../types';
+import { Clock, Film, Search, Mic, Image as ImageIcon, Video as VideoIcon, CheckCircle2, Loader2, XCircle, Layout, Binary, Sparkles, ArrowRight, SplitSquareHorizontal } from 'lucide-react';
 
 interface SceneCardProps {
   scene: Scene;
@@ -9,7 +9,10 @@ interface SceneCardProps {
   status?: PipelineStep;
   onViewResearch: (e: React.MouseEvent) => void;
   onEditScript: (e: React.MouseEvent) => void;
+  onUpdateTransition: (id: string, type: 'in' | 'mid', transition: TransitionType) => void;
 }
+
+const TRANSITIONS: TransitionType[] = ['FADE', 'CUT', 'DISSOLVE', 'SLIDE_LEFT', 'SLIDE_RIGHT', 'ZOOM_IN', 'GLITCH', 'WIPE'];
 
 const StatusIndicator = ({ label, status, icon }: { label: string, status: AssetStatus, icon: React.ReactNode }) => (
     <div className="flex items-center justify-between py-1.5 px-3 bg-black/20 rounded-lg border border-white/5">
@@ -23,7 +26,20 @@ const StatusIndicator = ({ label, status, icon }: { label: string, status: Asset
     </div>
 );
 
-export const SceneCard: React.FC<SceneCardProps> = ({ scene, index, status, onViewResearch, onEditScript }) => {
+const TransitionSelect = ({ value, onChange, label }: { value: TransitionType, onChange: (v: TransitionType) => void, label: string }) => (
+    <div className="flex items-center gap-2 bg-black/40 rounded-lg px-2 py-1 border border-white/5">
+        <span className="text-[9px] text-zinc-500 font-mono uppercase tracking-widest">{label}</span>
+        <select 
+            value={value} 
+            onChange={(e) => onChange(e.target.value as TransitionType)}
+            className="bg-transparent text-[10px] font-bold text-blue-400 uppercase outline-none cursor-pointer"
+        >
+            {TRANSITIONS.map(t => <option key={t} value={t} className="bg-zinc-900 text-zinc-300">{t}</option>)}
+        </select>
+    </div>
+);
+
+export const SceneCard: React.FC<SceneCardProps> = ({ scene, index, status, onViewResearch, onEditScript, onUpdateTransition }) => {
   const isProduction = status === PipelineStep.ASSET_GENERATION || status === PipelineStep.COMPLETE;
   
   return (
@@ -31,26 +47,45 @@ export const SceneCard: React.FC<SceneCardProps> = ({ scene, index, status, onVi
       <div className="flex flex-col lg:flex-row h-auto lg:min-h-[420px]">
           <div className="lg:w-1/2 relative h-[240px] lg:h-auto bg-black border-r border-zinc-800 flex items-center justify-center overflow-hidden">
                 {scene.imageUrl1 ? (
-                    <div className="w-full h-full flex">
+                    <div className="w-full h-full flex relative">
                         <img src={scene.imageUrl1} className="w-1/2 h-full object-cover border-r border-white/10" alt="Set A" />
                         {scene.imageUrl2 ? <img src={scene.imageUrl2} className="w-1/2 h-full object-cover" alt="Set B" /> : <div className="w-1/2 h-full bg-zinc-950 flex items-center justify-center text-zinc-800"><ImageIcon size={40} /></div>}
-                        <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-transparent" />
+                        
+                        {/* Mid-Clip Transition Control Overlay */}
+                        <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 z-20">
+                             <div className="bg-black/80 backdrop-blur border border-white/10 rounded-full px-3 py-1 shadow-2xl flex items-center gap-2 group cursor-pointer hover:bg-black hover:border-blue-500/50 transition-all">
+                                 <SplitSquareHorizontal size={12} className="text-zinc-500 group-hover:text-blue-400" />
+                                 <select 
+                                    value={scene.transitionMid} 
+                                    onChange={(e) => onUpdateTransition(scene.id, 'mid', e.target.value as TransitionType)}
+                                    className="bg-transparent text-[9px] font-mono text-zinc-400 group-hover:text-white uppercase outline-none cursor-pointer w-16 text-center appearance-none"
+                                 >
+                                    {TRANSITIONS.map(t => <option key={t} value={t}>{t}</option>)}
+                                 </select>
+                             </div>
+                        </div>
+                        
+                        <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-transparent pointer-events-none" />
                     </div>
                 ) : scene.previewUrl ? (
-                    <div className="w-full h-full relative">
-                        <img src={scene.previewUrl} className="w-full h-full object-contain filter contrast-125 mix-blend-screen opacity-60" alt="Wireframe Preview" />
-                        <div className="absolute inset-0 bg-black/20 flex items-center justify-center backdrop-blur-[1px]">
-                             <span className="px-4 py-2 bg-black/60 border border-blue-500/30 text-blue-400 font-mono text-[10px] uppercase tracking-widest">Architectural Blueprint</span>
+                    <div className="w-full h-full relative group">
+                        <img src={scene.previewUrl} className="w-full h-full object-cover transition-transform duration-700 group-hover:scale-105" alt="Concept Preview" />
+                        <div className="absolute inset-0 bg-gradient-to-t from-black/60 to-transparent opacity-60" />
+                        <div className="absolute bottom-4 left-4 flex items-center gap-2">
+                             <div className="px-2 py-1 bg-black/60 backdrop-blur-md rounded border border-white/10 flex items-center gap-2">
+                                <Sparkles size={10} className="text-yellow-400" />
+                                <span className="text-white font-mono text-[9px] uppercase tracking-widest">Concept Generated</span>
+                             </div>
                         </div>
                     </div>
                 ) : (
                     <div className="flex flex-col items-center gap-3 text-zinc-800">
                         {scene.statusPreview === 'loading' ? <Loader2 size={40} className="animate-spin text-blue-500/50" /> : <Binary size={40} />}
-                        <span className="text-[10px] font-mono uppercase tracking-[0.2em]">Archiving Metadata</span>
+                        <span className="text-[10px] font-mono uppercase tracking-[0.2em]">Processing Visuals...</span>
                     </div>
                 )}
                 <div className="absolute top-4 left-4 flex gap-2">
-                    <span className="px-3 py-1 rounded-full bg-black/80 border border-white/10 text-[9px] font-bold text-zinc-400 uppercase tracking-widest">PHASE: {isProduction ? 'PRODUCTION' : 'BLUEPRINT'}</span>
+                    <span className="px-3 py-1 rounded-full bg-black/80 border border-white/10 text-[9px] font-bold text-zinc-400 uppercase tracking-widest">PHASE: {isProduction ? 'PRODUCTION' : 'CONCEPT'}</span>
                 </div>
           </div>
           <div className="lg:w-1/2 p-8 flex flex-col justify-between bg-gradient-to-br from-zinc-900/50 to-black">
@@ -69,6 +104,11 @@ export const SceneCard: React.FC<SceneCardProps> = ({ scene, index, status, onVi
                       </div>
                   </div>
                   <p className="text-xl font-serif text-zinc-200 leading-relaxed italic mb-8">"{scene.script}"</p>
+                  
+                  {/* Internal Controls */}
+                  <div className="flex gap-2 mb-6 flex-wrap">
+                      <TransitionSelect value={scene.transitionIn} onChange={(v) => onUpdateTransition(scene.id, 'in', v)} label="Entry FX" />
+                  </div>
               </div>
               
               {isProduction && (

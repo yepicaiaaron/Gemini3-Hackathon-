@@ -67,7 +67,6 @@ export const analyzeRequest = async (input: string): Promise<VideoStrategy> => {
 
 export const generateNarrative = async (topic: string, hookStyle: HookStyle, strategy?: VideoStrategy): Promise<NarrativeBeat[]> => {
   const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
-  // STRICT enforcement of the strategy object to fix disconnection issues
   const prompt = `Act as a Master Storyteller. Create an EXACTLY 10-BEAT narrative for "${topic}".
   
   CRITICAL INSTRUCTION: You MUST strictly adhere to the following STRATEGY. Do not hallucinate a different topic.
@@ -95,12 +94,14 @@ export const generateNarrative = async (topic: string, hookStyle: HookStyle, str
 
 export const planScenes = async (beats: NarrativeBeat[], aspectRatio: AspectRatio, userLinks: string[], strategy?: VideoStrategy, hookStyle?: HookStyle): Promise<Scene[]> => {
   const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
-  // STRICT enforcement of the strategy object to fix disconnection issues
   const prompt = `Act as a Visual Intelligence Director. Convert these ${beats.length} beats into a dual-asset high-fidelity storyboard.
   
   CRITICAL: The visual concepts MUST reflect the STRATEGY: "${strategy?.summary}".
   
   EACH SCENE REQUIRES TWO DISTINCT VISUAL CONCEPTS (A and B).
+  
+  Also select the best transition effect entering the scene ('transitionIn') and between clip A and B ('transitionMid').
+  Available Transitions: FADE, CUT, DISSOLVE, SLIDE_LEFT, SLIDE_RIGHT, ZOOM_IN, GLITCH, WIPE.
   
   Return JSON array [{
     "id": "scene_N", 
@@ -112,6 +113,8 @@ export const planScenes = async (beats: NarrativeBeat[], aspectRatio: AspectRati
     "visualEffect": "Effect name", 
     "imagePrompt1": "SPECIFIC high-fidelity cinematic description for the first half",
     "imagePrompt2": "SPECIFIC alternative angle or secondary detail description for the second half",
+    "transitionIn": "TransitionType",
+    "transitionMid": "TransitionType",
     "useVeo": boolean
   }].`;
 
@@ -125,6 +128,8 @@ export const planScenes = async (beats: NarrativeBeat[], aspectRatio: AspectRati
     return scenes.map((s, i) => ({ 
       ...s, 
       id: s.id || `scene_${i}`, 
+      transitionIn: s.transitionIn || 'FADE',
+      transitionMid: s.transitionMid || 'CUT',
       statusAudio: 'idle', 
       statusPreview: 'idle',
       statusImage1: 'idle', 
@@ -136,19 +141,18 @@ export const planScenes = async (beats: NarrativeBeat[], aspectRatio: AspectRati
   });
 };
 
-export const generateWireframe = async (prompt: string, aspectRatio: AspectRatio): Promise<string> => {
+export const generateConceptImage = async (prompt: string, aspectRatio: AspectRatio): Promise<string> => {
   const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
   let arStr = aspectRatio === '9:16' ? "9:16" : aspectRatio === '1:1' ? "1:1" : "16:9";
   
-  // Updated prompt to focus on "Representing the Block" rather than just the script text
-  const wireframePrompt = `Conceptual storyboard sketch representing this narrative block: "${prompt}". 
-  Create a single, clean, black-and-white architectural line drawing that visualizes the core idea or subject matter of this text.
-  Style: Industrial design sketch, technical diagram, blueprint aesthetic, white background, black ink. No text in the image.`;
+  const conceptPrompt = `High-fidelity cinematic concept art: ${prompt}. 
+  Professional photography or 3D render style, dramatic lighting, 8k resolution, detailed textures, photorealistic. 
+  NO text overlays, NO blueprints, NO sketches. A finished visual representation of the scene.`;
   
   return withRetry(async () => {
     const response = await ai.models.generateContent({
         model: IMAGE_MODEL,
-        contents: wireframePrompt,
+        contents: conceptPrompt,
         config: { imageConfig: { aspectRatio: arStr, imageSize: "1K" } },
     });
     const parts = response.candidates?.[0]?.content?.parts;

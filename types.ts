@@ -45,6 +45,8 @@ export type VisualEffect =
   | 'VIGNETTE' 
   | 'MEME_FUSION';
 
+export type TransitionType = 'FADE' | 'CUT' | 'DISSOLVE' | 'SLIDE_LEFT' | 'SLIDE_RIGHT' | 'ZOOM_IN' | 'GLITCH' | 'WIPE';
+
 export type HookStyle = 'AI_SELECTED' | 'FAST_CUT' | 'ARTICLE_HIGHLIGHT' | 'TEXT_MATCH';
 export type AspectRatio = '16:9' | '9:16' | '1:1';
 
@@ -65,7 +67,7 @@ export interface AssetRecord {
 
 export interface Scene {
   id: string;
-  duration: number; 
+  duration: number; // Estimated duration, overridden by audio duration
   type: 'article_card' | 'split_screen' | 'full_chart' | 'diagram' | 'title'; 
   primaryVisual: string;
   script: string;
@@ -75,9 +77,14 @@ export interface Scene {
   reasoning: string; 
   visualResearchPlan: string; 
   
+  // Transition into this scene from the previous one
+  transitionIn: TransitionType;
+  // Transition between Asset A and Asset B within this scene
+  transitionMid: TransitionType;
+
   assets: AssetRecord[]; 
   
-  previewUrl?: string; // B&W Wireframe
+  previewUrl?: string; // Concept Art
   imagePrompt1?: string;
   imagePrompt2?: string;
   imageUrl1?: string;
@@ -128,6 +135,7 @@ export type AgentAction =
   | { type: 'UPDATE_SCENE_VIDEO'; payload: { id: string; slot: 1 | 2; url: string } }
   | { type: 'UPDATE_SCENE_SCRIPT'; payload: { id: string; script: string } }
   | { type: 'UPDATE_SCENE_AUDIO'; payload: { id: string; url: string } }
+  | { type: 'UPDATE_SCENE_TRANSITION'; payload: { id: string; type: 'in' | 'mid'; transition: TransitionType } }
   | { type: 'ADD_LOG'; payload: string }
   | { type: 'SET_ERROR'; payload: string }
   | { type: 'RESET' };

@@ -1,3 +1,4 @@
+
 import React, { useState, useReducer, useCallback, useEffect, useRef } from 'react';
 import { 
   ProjectState, 
@@ -9,7 +10,8 @@ import {
   HookStyle,
   AspectRatio,
   AssetStatus,
-  AssetRecord
+  AssetRecord,
+  TransitionType
 } from './types';
 import * as GeminiService from './services/gemini';
 import { PipelineSteps } from './components/PipelineSteps';
@@ -48,18 +50,9 @@ import {
   Rocket,
   Loader2,
   RefreshCcw,
-  Save
+  Save,
+  ArrowDown
 } from 'lucide-react';
-
-// Add global window interface extension for aistudio to prevent potential TS errors
-declare global {
-  interface Window {
-    aistudio?: {
-      hasSelectedApiKey: () => Promise<boolean>;
-      openSelectKey: () => Promise<void>;
-    }
-  }
-}
 
 const initialState: ProjectState = {
   topic: '',
@@ -142,6 +135,12 @@ function reducer(state: ProjectState, action: AgentAction): ProjectState {
       return { ...state, scenes: state.scenes.map(s => s.id === action.payload.id ? { ...s, audioUrl: action.payload.url, statusAudio: 'success' } : s) };
     case 'UPDATE_SCENE_SCRIPT':
       return { ...state, scenes: state.scenes.map(s => s.id === action.payload.id ? { ...s, script: action.payload.script } : s) };
+    case 'UPDATE_SCENE_TRANSITION':
+      return { ...state, scenes: state.scenes.map(s => s.id === action.payload.id ? { 
+          ...s, 
+          transitionIn: action.payload.type === 'in' ? action.payload.transition : s.transitionIn,
+          transitionMid: action.payload.type === 'mid' ? action.payload.transition : s.transitionMid
+      } : s) };
     case 'ADD_LOG':
       return { ...state, logs: [...state.logs, action.payload] };
     case 'SET_ERROR':
@@ -169,6 +168,14 @@ const ProductionTimer = () => {
     );
 };
 
+const TransitionNode = ({ type }: { type: TransitionType }) => (
+    <div className="flex justify-center py-2">
+        <div className="px-3 py-1 bg-zinc-900 border border-zinc-800 rounded-full flex items-center gap-2 text-[9px] font-mono text-zinc-500 uppercase tracking-widest shadow-lg">
+            <ArrowDown size={10} /> {type} TRANSITION <ArrowDown size={10} />
+        </div>
+    </div>
+);
+
 export default function App() {
   const [state, dispatch] = useReducer(reducer, initialState);
   const [isPreviewOpen, setIsPreviewOpen] = useState(false);
@@ -180,7 +187,6 @@ export default function App() {
   const [editingSceneId, setEditingSceneId] = useState<string | null>(null);
   const [editScriptText, setEditScriptText] = useState('');
   const [activeSceneIndex, setActiveSceneIndex] = useState(0);
-  // Strategy form now initialized by useEffect when state.strategy changes
   const [strategyForm, setStrategyForm] = useState<VideoStrategy | null>(null);
   const [isExporting, setIsExporting] = useState(false);
 
@@ -190,31 +196,15 @@ export default function App() {
       }
   }, [state.strategy]);
 
-  useEffect(() => {
-    if (state.scenes.length === 0) return;
-    const observer = new IntersectionObserver((entries) => {
-      entries.forEach(entry => {
-        if (entry.isIntersecting) {
-          const index = Number(entry.target.getAttribute('data-index'));
-          if (!isNaN(index)) setActiveSceneIndex(index);
-        }
-      });
-    }, { threshold: 0.5 });
-    state.scenes.forEach((_, i) => {
-      const el = document.getElementById(`scene-card-${i}`);
-      if (el) observer.observe(el);
-    });
-    return () => observer.disconnect();
-  }, [state.scenes]);
-
   const startAnalysis = useCallback(async (topic: string) => {
-    if (window.aistudio?.hasSelectedApiKey && !(await window.aistudio.hasSelectedApiKey())) await window.aistudio?.openSelectKey?.();
+    // Cast window to any to access aistudio safely
+    const aiStudio = (window as any).aistudio;
+    if (aiStudio?.hasSelectedApiKey && !(await aiStudio.hasSelectedApiKey())) await aiStudio?.openSelectKey?.();
     const userLinks = (topic.match(/(https?:\/\/[^\s]+)/g) || []);
     dispatch({ type: 'START_ANALYSIS', payload: { topic, userLinks, voice: selectedVoice, hookStyle: selectedHook, aspectRatio: selectedAspectRatio } });
     try {
        const strategy = await GeminiService.analyzeRequest(topic);
        dispatch({ type: 'SET_STRATEGY', payload: strategy });
-       // Form state updated by effect
     } catch (error: any) {
        dispatch({ type: 'SET_ERROR', payload: error.message || 'Analysis agent failed.' });
     }
@@ -241,13 +231,9 @@ export default function App() {
 
   const confirmStrategyAndPlan = useCallback(async () => {
     if (!strategyForm) return;
-    
-    // Commit edits to global state before planning
     dispatch({ type: 'UPDATE_STRATEGY', payload: strategyForm });
-    
     dispatch({ type: 'SET_STATUS', payload: PipelineStep.NARRATIVE });
     try {
-      // Pass the *edited* strategyForm to the agents
       const beats = await GeminiService.generateNarrative(state.topic, state.hookStyle, strategyForm);
       dispatch({ type: 'SET_NARRATIVE', payload: beats });
       dispatch({ type: 'SET_STATUS', payload: PipelineStep.SCENE_PLANNING });
@@ -256,12 +242,10 @@ export default function App() {
       
       const wireframePromises = scenes.map(async (scene) => {
           dispatch({ type: 'UPDATE_ASSET_STATUS', payload: { id: scene.id, type: 'preview', status: 'loading' } });
-          // Ensure prompt is script-based but focuses on representing the block visually
-          const wireframeUrl = await GeminiService.generateWireframe(scene.script, state.aspectRatio);
-          dispatch({ type: 'UPDATE_SCENE_PREVIEW', payload: { id: scene.id, url: wireframeUrl } });
+          const conceptUrl = await GeminiService.generateConceptImage(scene.script, state.aspectRatio);
+          dispatch({ type: 'UPDATE_SCENE_PREVIEW', payload: { id: scene.id, url: conceptUrl } });
       });
       await Promise.all(wireframePromises);
-      
       await runDeepResearch(scenes);
     } catch (error: any) {
       dispatch({ type: 'SET_ERROR', payload: error.message || 'Scene planning failed.' });
@@ -269,37 +253,48 @@ export default function App() {
   }, [strategyForm, state.topic, state.hookStyle, state.aspectRatio, state.userLinks]);
 
   const processSceneProduction = async (scene: Scene) => {
-      // 1. Audio
-      dispatch({ type: 'UPDATE_ASSET_STATUS', payload: { id: scene.id, type: 'audio', status: 'loading' } });
-      const audioUrl = await GeminiService.generateSpeech(scene.script, state.voice);
-      dispatch({ type: 'UPDATE_SCENE_AUDIO', payload: { id: scene.id, url: audioUrl } });
+      // Parallelize asset generation within the scene
+      const tasks = [];
 
-      // 2. Dual Asset Production
-      // Visual 1
-      dispatch({ type: 'UPDATE_ASSET_STATUS', payload: { id: scene.id, type: 'image1', status: 'loading' } });
-      const res1 = await GeminiService.generateSceneImage(scene.imagePrompt1 || scene.script, state.aspectRatio);
-      dispatch({ type: 'UPDATE_SCENE_IMAGE', payload: { id: scene.id, slot: 1, url: res1.imageUrl } });
-      if (scene.useVeo) {
-          dispatch({ type: 'UPDATE_ASSET_STATUS', payload: { id: scene.id, type: 'video1', status: 'loading' } });
-          const v1 = await GeminiService.generateVideo(scene.imagePrompt1 || scene.script, state.aspectRatio, res1.imageUrl);
-          dispatch({ type: 'UPDATE_SCENE_VIDEO', payload: { id: scene.id, slot: 1, url: v1 } });
-      }
+      // Task 1: Audio
+      tasks.push((async () => {
+          dispatch({ type: 'UPDATE_ASSET_STATUS', payload: { id: scene.id, type: 'audio', status: 'loading' } });
+          const audioUrl = await GeminiService.generateSpeech(scene.script, state.voice);
+          dispatch({ type: 'UPDATE_SCENE_AUDIO', payload: { id: scene.id, url: audioUrl } });
+      })());
 
-      // Visual 2
-      dispatch({ type: 'UPDATE_ASSET_STATUS', payload: { id: scene.id, type: 'image2', status: 'loading' } });
-      const res2 = await GeminiService.generateSceneImage(scene.imagePrompt2 || "Alternative " + scene.script, state.aspectRatio);
-      dispatch({ type: 'UPDATE_SCENE_IMAGE', payload: { id: scene.id, slot: 2, url: res2.imageUrl } });
-      if (scene.useVeo) {
-          dispatch({ type: 'UPDATE_ASSET_STATUS', payload: { id: scene.id, type: 'video2', status: 'loading' } });
-          const v2 = await GeminiService.generateVideo(scene.imagePrompt2 || scene.script, state.aspectRatio, res2.imageUrl);
-          dispatch({ type: 'UPDATE_SCENE_VIDEO', payload: { id: scene.id, slot: 2, url: v2 } });
-      }
+      // Task 2: Visual 1
+      tasks.push((async () => {
+          dispatch({ type: 'UPDATE_ASSET_STATUS', payload: { id: scene.id, type: 'image1', status: 'loading' } });
+          const res1 = await GeminiService.generateSceneImage(scene.imagePrompt1 || scene.script, state.aspectRatio);
+          dispatch({ type: 'UPDATE_SCENE_IMAGE', payload: { id: scene.id, slot: 1, url: res1.imageUrl } });
+          if (scene.useVeo) {
+              dispatch({ type: 'UPDATE_ASSET_STATUS', payload: { id: scene.id, type: 'video1', status: 'loading' } });
+              const v1 = await GeminiService.generateVideo(scene.imagePrompt1 || scene.script, state.aspectRatio, res1.imageUrl);
+              dispatch({ type: 'UPDATE_SCENE_VIDEO', payload: { id: scene.id, slot: 1, url: v1 } });
+          }
+      })());
+
+      // Task 3: Visual 2
+      tasks.push((async () => {
+          dispatch({ type: 'UPDATE_ASSET_STATUS', payload: { id: scene.id, type: 'image2', status: 'loading' } });
+          const res2 = await GeminiService.generateSceneImage(scene.imagePrompt2 || "Alternative " + scene.script, state.aspectRatio);
+          dispatch({ type: 'UPDATE_SCENE_IMAGE', payload: { id: scene.id, slot: 2, url: res2.imageUrl } });
+          if (scene.useVeo) {
+              dispatch({ type: 'UPDATE_ASSET_STATUS', payload: { id: scene.id, type: 'video2', status: 'loading' } });
+              const v2 = await GeminiService.generateVideo(scene.imagePrompt2 || scene.script, state.aspectRatio, res2.imageUrl);
+              dispatch({ type: 'UPDATE_SCENE_VIDEO', payload: { id: scene.id, slot: 2, url: v2 } });
+          }
+      })());
+
+      await Promise.all(tasks);
   };
 
   const approveAndGenerate = useCallback(async () => {
      dispatch({ type: 'SET_STATUS', payload: PipelineStep.ASSET_GENERATION });
      const queue = [...state.scenes];
-     const workers = Array.from({ length: 2 }).map(async () => {
+     // Increase concurrency to 4 parallel scenes
+     const workers = Array.from({ length: 4 }).map(async () => {
          while (queue.length > 0) {
              const scene = queue.shift();
              if (scene) await processSceneProduction(scene);
@@ -337,7 +332,7 @@ export default function App() {
             <h1 className="font-bold text-lg tracking-tight">Agentic<span className="text-zinc-500">Video</span></h1>
           </div>
           <div className="flex items-center gap-4">
-             {window.aistudio?.openSelectKey && <button onClick={() => window.aistudio?.openSelectKey?.()} className="text-xs font-mono text-zinc-400 hover:text-white flex items-center gap-1"><Key size={12} /> API KEY</button>}
+             {(window as any).aistudio?.openSelectKey && <button onClick={() => (window as any).aistudio?.openSelectKey?.()} className="text-xs font-mono text-zinc-400 hover:text-white flex items-center gap-1"><Key size={12} /> API KEY</button>}
              <div className="text-xs font-mono text-zinc-600 bg-zinc-900 px-3 py-1 rounded-full border border-zinc-800">v0.5.0</div>
           </div>
         </div>
@@ -484,8 +479,8 @@ export default function App() {
             )}
 
             {(state.status === PipelineStep.REVIEW || state.status === PipelineStep.RESEARCHING || state.status === PipelineStep.ASSET_GENERATION || state.status === PipelineStep.COMPLETE) && (
-                <div className="max-w-6xl mx-auto w-full space-y-12">
-                    <div className="flex justify-between items-end border-b border-zinc-800 pb-8">
+                <div className="max-w-6xl mx-auto w-full space-y-4">
+                    <div className="flex justify-between items-end border-b border-zinc-800 pb-8 mb-8">
                         <div>
                             <h1 className="text-4xl font-bold text-white mb-2 tracking-tight uppercase">Master Dashboard</h1>
                             {state.status === PipelineStep.ASSET_GENERATION && <ProductionTimer />}
@@ -496,14 +491,19 @@ export default function App() {
                         </div>
                     </div>
                     {state.scenes.map((scene, index) => (
-                        <SceneCard 
-                            key={scene.id} 
-                            scene={scene} 
-                            index={index} 
-                            status={state.status} 
-                            onViewResearch={(e) => { e.stopPropagation(); setResearchSceneId(scene.id); }} 
-                            onEditScript={(e) => { e.stopPropagation(); setEditingSceneId(scene.id); setEditScriptText(scene.script); }} 
-                        />
+                        <React.Fragment key={scene.id}>
+                            <SceneCard 
+                                scene={scene} 
+                                index={index} 
+                                status={state.status} 
+                                onViewResearch={(e) => { e.stopPropagation(); setResearchSceneId(scene.id); }} 
+                                onEditScript={(e) => { e.stopPropagation(); setEditingSceneId(scene.id); setEditScriptText(scene.script); }} 
+                                onUpdateTransition={(id, type, t) => dispatch({ type: 'UPDATE_SCENE_TRANSITION', payload: { id, type, transition: t } })}
+                            />
+                            {index < state.scenes.length - 1 && (
+                                <TransitionNode type={state.scenes[index + 1].transitionIn} />
+                            )}
+                        </React.Fragment>
                     ))}
                 </div>
             )}
