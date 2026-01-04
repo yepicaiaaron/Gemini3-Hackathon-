@@ -67,13 +67,20 @@ export const analyzeRequest = async (input: string): Promise<VideoStrategy> => {
 
 export const generateNarrative = async (topic: string, hookStyle: HookStyle, strategy?: VideoStrategy): Promise<NarrativeBeat[]> => {
   const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
-  const prompt = `Act as a Master Storyteller and Documentary Director. 
-  Create a complex 10-beat narrative structure for "${topic}".
+  // STRICT enforcement of the strategy object to fix disconnection issues
+  const prompt = `Act as a Master Storyteller. Create an EXACTLY 10-BEAT narrative for "${topic}".
+  
+  CRITICAL INSTRUCTION: You MUST strictly adhere to the following STRATEGY. Do not hallucinate a different topic.
+  STRATEGY CONTEXT:
+  - Summary: ${strategy?.summary}
+  - Objective: ${strategy?.keyObjective}
+  - Tone: ${strategy?.toneStyle}
+
   STRICT RULES:
-  1. No boilerplate filler like "Introduction" or "Overview".
-  2. Every beat must contain a SPECIFIC data point or unique historical/technical fact.
-  3. The description must be a detailed directorial instruction.
-  Strategy: ${JSON.stringify(strategy)}. 
+  1. EXACTLY 10 beats.
+  2. The flow must match the Strategy Summary above.
+  3. No generic headers. Specific data points only.
+  
   Return JSON array [{beat, goal, description}].`;
 
   return withRetry(async () => {
@@ -88,22 +95,23 @@ export const generateNarrative = async (topic: string, hookStyle: HookStyle, str
 
 export const planScenes = async (beats: NarrativeBeat[], aspectRatio: AspectRatio, userLinks: string[], strategy?: VideoStrategy, hookStyle?: HookStyle): Promise<Scene[]> => {
   const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
-  const prompt = `Act as a Visual Intelligence Director. Convert these beats into a dual-asset high-fidelity storyboard.
-  FORBIDDEN: Generic visual prompts like "a person talking" or "data on screen".
-  REQUIRED: Specific visual metaphors, blueprints, and cinematic compositions. 
+  // STRICT enforcement of the strategy object to fix disconnection issues
+  const prompt = `Act as a Visual Intelligence Director. Convert these ${beats.length} beats into a dual-asset high-fidelity storyboard.
   
-  Each scene MUST have two distinct visual prompts (imagePrompt1 and imagePrompt2) that describe DIFFERENT specific details of the same concept to prevent visual loops.
+  CRITICAL: The visual concepts MUST reflect the STRATEGY: "${strategy?.summary}".
+  
+  EACH SCENE REQUIRES TWO DISTINCT VISUAL CONCEPTS (A and B).
   
   Return JSON array [{
     "id": "scene_N", 
     "duration": 6, 
     "type": "article_card | split_screen | full_chart | diagram | title", 
-    "primaryVisual": "A dense technical summary of the visual concept", 
+    "primaryVisual": "Detailed summary of the visual concept based on strategy", 
     "visualResearchPlan": "specific search query for real-world intel", 
-    "script": "Professional, information-dense narration text", 
+    "script": "Professional narration matching the beat and tone: ${strategy?.toneStyle}", 
     "visualEffect": "Effect name", 
-    "imagePrompt1": "SPECIFIC high-fidelity cinematic description",
-    "imagePrompt2": "SPECIFIC alternative angle or secondary detail description",
+    "imagePrompt1": "SPECIFIC high-fidelity cinematic description for the first half",
+    "imagePrompt2": "SPECIFIC alternative angle or secondary detail description for the second half",
     "useVeo": boolean
   }].`;
 
@@ -131,7 +139,11 @@ export const planScenes = async (beats: NarrativeBeat[], aspectRatio: AspectRati
 export const generateWireframe = async (prompt: string, aspectRatio: AspectRatio): Promise<string> => {
   const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
   let arStr = aspectRatio === '9:16' ? "9:16" : aspectRatio === '1:1' ? "1:1" : "16:9";
-  const wireframePrompt = `TECHNICAL BLUEPRINT: Pure black ink lines on a flat white background. Minimalist technical line-art drawing of: ${prompt}. Extremely thin architectural lines, technical blueprint schematic, zero shading, zero shadows, no color, strictly binary black/white. Scientific illustration style.`;
+  
+  // Updated prompt to focus on "Representing the Block" rather than just the script text
+  const wireframePrompt = `Conceptual storyboard sketch representing this narrative block: "${prompt}". 
+  Create a single, clean, black-and-white architectural line drawing that visualizes the core idea or subject matter of this text.
+  Style: Industrial design sketch, technical diagram, blueprint aesthetic, white background, black ink. No text in the image.`;
   
   return withRetry(async () => {
     const response = await ai.models.generateContent({
@@ -231,10 +243,6 @@ export const generateSceneImage = async (prompt: string, aspectRatio: AspectRati
   });
 };
 
-/**
- * Fixes Error in file App.tsx on line 435: Property 'mixAssets' does not exist on type 'typeof import("file:///services/gemini")'.
- * Synthesizes and blends two visual concepts into a single cohesive cinematic image using the Gemini 3 Pro image model.
- */
 export const mixAssets = async (assetA: string, assetB: string, aspectRatio: AspectRatio): Promise<{ imageUrl: string }> => {
   const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
   const arStr = aspectRatio === '9:16' ? "9:16" : aspectRatio === '1:1' ? "1:1" : "16:9";

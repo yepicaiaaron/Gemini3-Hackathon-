@@ -1,4 +1,3 @@
-
 import React, { useState, useReducer, useCallback, useEffect, useRef } from 'react';
 import { 
   ProjectState, 
@@ -47,8 +46,20 @@ import {
   Download,
   Youtube,
   Rocket,
-  Loader2
+  Loader2,
+  RefreshCcw,
+  Save
 } from 'lucide-react';
+
+// Add global window interface extension for aistudio to prevent potential TS errors
+declare global {
+  interface Window {
+    aistudio?: {
+      hasSelectedApiKey: () => Promise<boolean>;
+      openSelectKey: () => Promise<void>;
+    }
+  }
+}
 
 const initialState: ProjectState = {
   topic: '',
@@ -85,6 +96,8 @@ function reducer(state: ProjectState, action: AgentAction): ProjectState {
       return { ...initialState, topic: action.payload.topic, userLinks: action.payload.userLinks, voice: action.payload.voice, hookStyle: action.payload.hookStyle, aspectRatio: action.payload.aspectRatio, status: PipelineStep.ANALYZING, logs: [`Analyzing input...`] };
     case 'SET_STRATEGY':
       return { ...state, strategy: action.payload, status: PipelineStep.STRATEGY };
+    case 'UPDATE_STRATEGY':
+      return { ...state, strategy: action.payload };
     case 'SET_STATUS':
       return { ...state, status: action.payload };
     case 'SET_NARRATIVE':
@@ -167,8 +180,15 @@ export default function App() {
   const [editingSceneId, setEditingSceneId] = useState<string | null>(null);
   const [editScriptText, setEditScriptText] = useState('');
   const [activeSceneIndex, setActiveSceneIndex] = useState(0);
+  // Strategy form now initialized by useEffect when state.strategy changes
   const [strategyForm, setStrategyForm] = useState<VideoStrategy | null>(null);
   const [isExporting, setIsExporting] = useState(false);
+
+  useEffect(() => {
+      if (state.strategy) {
+          setStrategyForm(state.strategy);
+      }
+  }, [state.strategy]);
 
   useEffect(() => {
     if (state.scenes.length === 0) return;
@@ -194,7 +214,7 @@ export default function App() {
     try {
        const strategy = await GeminiService.analyzeRequest(topic);
        dispatch({ type: 'SET_STRATEGY', payload: strategy });
-       setStrategyForm(strategy);
+       // Form state updated by effect
     } catch (error: any) {
        dispatch({ type: 'SET_ERROR', payload: error.message || 'Analysis agent failed.' });
     }
@@ -221,18 +241,23 @@ export default function App() {
 
   const confirmStrategyAndPlan = useCallback(async () => {
     if (!strategyForm) return;
+    
+    // Commit edits to global state before planning
+    dispatch({ type: 'UPDATE_STRATEGY', payload: strategyForm });
+    
     dispatch({ type: 'SET_STATUS', payload: PipelineStep.NARRATIVE });
     try {
+      // Pass the *edited* strategyForm to the agents
       const beats = await GeminiService.generateNarrative(state.topic, state.hookStyle, strategyForm);
       dispatch({ type: 'SET_NARRATIVE', payload: beats });
       dispatch({ type: 'SET_STATUS', payload: PipelineStep.SCENE_PLANNING });
       const scenes = await GeminiService.planScenes(beats, state.aspectRatio, state.userLinks, strategyForm, state.hookStyle);
       dispatch({ type: 'SET_SCENES', payload: scenes });
       
-      // Immediate wireframe generation phase
       const wireframePromises = scenes.map(async (scene) => {
           dispatch({ type: 'UPDATE_ASSET_STATUS', payload: { id: scene.id, type: 'preview', status: 'loading' } });
-          const wireframeUrl = await GeminiService.generateWireframe(scene.primaryVisual, state.aspectRatio);
+          // Ensure prompt is script-based but focuses on representing the block visually
+          const wireframeUrl = await GeminiService.generateWireframe(scene.script, state.aspectRatio);
           dispatch({ type: 'UPDATE_SCENE_PREVIEW', payload: { id: scene.id, url: wireframeUrl } });
       });
       await Promise.all(wireframePromises);
@@ -390,13 +415,70 @@ export default function App() {
 
             {state.status === PipelineStep.STRATEGY && strategyForm && (
                 <div className="max-w-4xl mx-auto w-full">
-                    <div className="bg-zinc-900 border border-zinc-800 rounded-3xl p-8">
-                        <h2 className="text-3xl font-bold text-white mb-8 uppercase tracking-widest">Blueprint Strategy</h2>
-                        <div className="bg-black/60 rounded-2xl p-6 mb-8">
-                            <h4 className="text-xs font-bold text-zinc-500 uppercase mb-3 tracking-widest">Neural Directives</h4>
-                            <p className="text-zinc-100 text-lg leading-relaxed">"{strategyForm.summary}"</p>
+                    <div className="bg-zinc-900 border border-zinc-800 rounded-3xl p-8 shadow-2xl">
+                        <div className="flex justify-between items-center mb-6">
+                            <h2 className="text-3xl font-bold text-white uppercase tracking-widest flex items-center gap-3">
+                                <Activity className="text-blue-500" /> Blueprint Strategy
+                            </h2>
+                            <div className="flex gap-2">
+                                <button 
+                                    onClick={() => startAnalysis(state.topic)}
+                                    className="p-3 rounded-xl border border-zinc-700 text-zinc-400 hover:bg-zinc-800 hover:text-white transition-all flex items-center gap-2 text-xs uppercase font-bold tracking-widest"
+                                >
+                                    <RefreshCcw size={16} /> Regenerate
+                                </button>
+                            </div>
                         </div>
-                        <button onClick={confirmStrategyAndPlan} className="w-full py-4 bg-white text-black font-bold rounded-2xl flex items-center justify-center gap-3 transition-transform hover:scale-[1.01]"><Zap size={20} /> Initiate Planning Agents</button>
+
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-8">
+                            <div className="bg-black/60 rounded-2xl p-6 border border-zinc-800/50">
+                                <label className="text-xs font-bold text-blue-400 uppercase mb-3 block tracking-widest">Core Narrative Summary</label>
+                                <textarea 
+                                    value={strategyForm.summary} 
+                                    onChange={(e) => setStrategyForm({...strategyForm, summary: e.target.value})}
+                                    className="w-full h-32 bg-transparent text-lg text-zinc-100 placeholder-zinc-700 focus:outline-none resize-none leading-relaxed"
+                                    placeholder="Enter summary..."
+                                />
+                            </div>
+                            <div className="space-y-6">
+                                <div className="bg-black/60 rounded-2xl p-6 border border-zinc-800/50">
+                                    <label className="text-xs font-bold text-purple-400 uppercase mb-2 block tracking-widest">Key Objective</label>
+                                    <input 
+                                        type="text" 
+                                        value={strategyForm.keyObjective} 
+                                        onChange={(e) => setStrategyForm({...strategyForm, keyObjective: e.target.value})}
+                                        className="w-full bg-transparent text-sm text-zinc-300 focus:outline-none"
+                                    />
+                                </div>
+                                <div className="grid grid-cols-2 gap-6">
+                                    <div className="bg-black/60 rounded-2xl p-6 border border-zinc-800/50">
+                                        <label className="text-xs font-bold text-green-400 uppercase mb-2 block tracking-widest">Target Audience</label>
+                                        <input 
+                                            type="text" 
+                                            value={strategyForm.targetAudience} 
+                                            onChange={(e) => setStrategyForm({...strategyForm, targetAudience: e.target.value})}
+                                            className="w-full bg-transparent text-sm text-zinc-300 focus:outline-none"
+                                        />
+                                    </div>
+                                    <div className="bg-black/60 rounded-2xl p-6 border border-zinc-800/50">
+                                        <label className="text-xs font-bold text-orange-400 uppercase mb-2 block tracking-widest">Tone & Style</label>
+                                        <input 
+                                            type="text" 
+                                            value={strategyForm.toneStyle} 
+                                            onChange={(e) => setStrategyForm({...strategyForm, toneStyle: e.target.value})}
+                                            className="w-full bg-transparent text-sm text-zinc-300 focus:outline-none"
+                                        />
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <button 
+                            onClick={confirmStrategyAndPlan} 
+                            className="w-full py-5 bg-white text-black font-black uppercase tracking-widest rounded-2xl flex items-center justify-center gap-3 transition-transform hover:scale-[1.01] shadow-lg shadow-white/10"
+                        >
+                            <Zap size={20} className="fill-black" /> Approve & Initiate Planning Agents
+                        </button>
                     </div>
                 </div>
             )}
@@ -414,7 +496,14 @@ export default function App() {
                         </div>
                     </div>
                     {state.scenes.map((scene, index) => (
-                        <SceneCard key={scene.id} scene={scene} index={index} status={state.status} onClick={() => {}} onViewResearch={(e) => { e.stopPropagation(); setResearchSceneId(scene.id); }} onEditScript={(e) => { e.stopPropagation(); setEditingSceneId(scene.id); setEditScriptText(scene.script); }} />
+                        <SceneCard 
+                            key={scene.id} 
+                            scene={scene} 
+                            index={index} 
+                            status={state.status} 
+                            onViewResearch={(e) => { e.stopPropagation(); setResearchSceneId(scene.id); }} 
+                            onEditScript={(e) => { e.stopPropagation(); setEditingSceneId(scene.id); setEditScriptText(scene.script); }} 
+                        />
                     ))}
                 </div>
             )}

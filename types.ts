@@ -116,6 +116,7 @@ export interface ProjectState {
 export type AgentAction = 
   | { type: 'START_ANALYSIS'; payload: { topic: string; userLinks: string[]; voice: string; hookStyle: HookStyle; aspectRatio: AspectRatio } }
   | { type: 'SET_STRATEGY'; payload: VideoStrategy }
+  | { type: 'UPDATE_STRATEGY'; payload: VideoStrategy }
   | { type: 'SET_STATUS'; payload: PipelineStep }
   | { type: 'SET_NARRATIVE'; payload: NarrativeBeat[] }
   | { type: 'SET_SCENES'; payload: Scene[] }
