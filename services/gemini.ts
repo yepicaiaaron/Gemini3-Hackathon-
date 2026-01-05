@@ -1,4 +1,3 @@
-
 import { GoogleGenAI, Type, Modality } from "@google/genai";
 import { NarrativeBeat, Scene, GroundingChunk, VisualEffect, VideoStrategy, HookStyle, AspectRatio, AssetRecord } from "../types";
 import { AssetDb } from "./assetDb";
@@ -8,15 +7,22 @@ const IMAGE_MODEL = "gemini-3-pro-image-preview";
 const TTS_MODEL = "gemini-2.5-flash-preview-tts";
 const VIDEO_MODEL = "veo-3.1-fast-generate-preview";
 
-const withRetry = async <T>(fn: () => Promise<T>, retries = 3, baseDelay = 3000): Promise<T> => {
+// Increased retries to 5 and adjusted backoff for high concurrency environments
+const withRetry = async <T>(fn: () => Promise<T>, retries = 5, baseDelay = 1000): Promise<T> => {
   for (let i = 0; i < retries; i++) {
     try {
       return await fn();
     } catch (e: any) {
       const isRateLimit = e.status === 429 || e.code === 429 || (e.message && e.message.includes('429')) || (e.message && e.message.includes('quota'));
       const isServerOverload = e.status === 503 || e.code === 503;
-      if (i === retries - 1 || (!isRateLimit && !isServerOverload)) throw e;
-      const delay = baseDelay * Math.pow(2, i);
+      
+      // If it's not a recoverable error and we aren't forcing retries, throw immediately
+      if (!isRateLimit && !isServerOverload && i < retries - 2) throw e;
+      
+      if (i === retries - 1) throw e;
+      
+      // Jittered exponential backoff
+      const delay = baseDelay * Math.pow(2, i) + (Math.random() * 1000);
       await new Promise(resolve => setTimeout(resolve, delay));
     }
   }
@@ -94,35 +100,59 @@ export const generateNarrative = async (topic: string, hookStyle: HookStyle, str
 
 export const planScenes = async (beats: NarrativeBeat[], aspectRatio: AspectRatio, userLinks: string[], strategy?: VideoStrategy, hookStyle?: HookStyle): Promise<Scene[]> => {
   const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
-  const prompt = `Act as a Visual Intelligence Director. Convert these ${beats.length} beats into a dual-asset high-fidelity storyboard.
   
-  CRITICAL: The visual concepts MUST reflect the STRATEGY: "${strategy?.summary}".
+  const prompt = `Act as a Visual Intelligence Director. Convert the following Narrative Beats into a dual-asset high-fidelity storyboard.
   
-  EACH SCENE REQUIRES TWO DISTINCT VISUAL CONCEPTS (A and B).
+  STRATEGY CONTEXT:
+  - Summary: ${strategy?.summary}
+  - Target Audience: ${strategy?.targetAudience}
+  - Tone: ${strategy?.toneStyle}
   
-  Also select the best transition effect entering the scene ('transitionIn') and between clip A and B ('transitionMid').
-  Available Transitions: FADE, CUT, DISSOLVE, SLIDE_LEFT, SLIDE_RIGHT, ZOOM_IN, GLITCH, WIPE.
+  NARRATIVE BEATS:
+  ${JSON.stringify(beats, null, 2)}
   
-  Return JSON array [{
-    "id": "scene_N", 
-    "duration": 6, 
-    "type": "article_card | split_screen | full_chart | diagram | title", 
-    "primaryVisual": "Detailed summary of the visual concept based on strategy", 
-    "visualResearchPlan": "specific search query for real-world intel", 
-    "script": "Professional narration matching the beat and tone: ${strategy?.toneStyle}", 
-    "visualEffect": "Effect name", 
-    "imagePrompt1": "SPECIFIC high-fidelity cinematic description for the first half",
-    "imagePrompt2": "SPECIFIC alternative angle or secondary detail description for the second half",
-    "transitionIn": "TransitionType",
-    "transitionMid": "TransitionType",
-    "useVeo": boolean
-  }].`;
+  USER LINKS (Context):
+  ${userLinks.join(', ')}
+
+  INSTRUCTIONS:
+  1. Create a scene for each beat.
+  2. EACH SCENE REQUIRES TWO DISTINCT VISUAL CONCEPTS (A and B).
+  3. Select the best transition effect entering the scene ('transitionIn') and between clip A and B ('transitionMid').
+  4. Available Transitions: FADE, CUT, DISSOLVE, SLIDE_LEFT, SLIDE_RIGHT, ZOOM_IN, GLITCH, WIPE.
+  
+  Return a JSON array of Scene objects.`;
+
+  const schema = {
+    type: Type.ARRAY,
+    items: {
+      type: Type.OBJECT,
+      properties: {
+        id: { type: Type.STRING },
+        duration: { type: Type.NUMBER },
+        type: { type: Type.STRING },
+        primaryVisual: { type: Type.STRING },
+        visualResearchPlan: { type: Type.STRING },
+        script: { type: Type.STRING },
+        visualEffect: { type: Type.STRING },
+        imagePrompt1: { type: Type.STRING },
+        imagePrompt2: { type: Type.STRING },
+        transitionIn: { type: Type.STRING },
+        transitionMid: { type: Type.STRING },
+        useVeo: { type: Type.BOOLEAN },
+      },
+      required: ["id", "duration", "type", "primaryVisual", "script", "imagePrompt1", "imagePrompt2", "transitionIn", "transitionMid"],
+    },
+  };
 
   return withRetry(async () => {
     const response = await ai.models.generateContent({
         model: TEXT_MODEL,
         contents: prompt,
-        config: { responseMimeType: "application/json", temperature: 0.2, thinkingConfig: { thinkingBudget: 24000 } }
+        config: { 
+          responseMimeType: "application/json", 
+          responseSchema: schema,
+          temperature: 0.2
+        }
     });
     const scenes = cleanAndParseJSON(response.text!) as Scene[];
     return scenes.map((s, i) => ({ 
@@ -130,6 +160,10 @@ export const planScenes = async (beats: NarrativeBeat[], aspectRatio: AspectRati
       id: s.id || `scene_${i}`, 
       transitionIn: s.transitionIn || 'FADE',
       transitionMid: s.transitionMid || 'CUT',
+      motionIntent: [],
+      effectReasoning: '',
+      reasoning: '',
+      visualEffect: s.visualEffect as any || 'NONE',
       statusAudio: 'idle', 
       statusPreview: 'idle',
       statusImage1: 'idle', 

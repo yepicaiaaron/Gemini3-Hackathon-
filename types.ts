@@ -52,6 +52,13 @@ export type AspectRatio = '16:9' | '9:16' | '1:1';
 
 export type AssetStatus = 'idle' | 'loading' | 'success' | 'error';
 
+export interface RenderProgress {
+  status: 'idle' | 'preparing' | 'rendering' | 'encoding' | 'completed' | 'error';
+  progress: number;
+  currentFrame?: number;
+  totalFrames?: number;
+}
+
 export interface AssetRecord {
   id: string; 
   originalUrl: string;

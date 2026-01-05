@@ -19,6 +19,7 @@ import { SceneCard } from './components/SceneCard';
 import { PreviewPlayer } from './components/PreviewPlayer';
 import { ResearchPopup } from './components/ResearchPopup';
 import { FallingText } from './components/FallingText';
+import { YouTubeModal } from './components/YouTubeModal';
 import { 
   BrainCircuit, 
   Zap, 
@@ -51,7 +52,8 @@ import {
   Loader2,
   RefreshCcw,
   Save,
-  ArrowDown
+  ArrowDown,
+  Volume2
 } from 'lucide-react';
 
 const initialState: ProjectState = {
@@ -176,6 +178,36 @@ const TransitionNode = ({ type }: { type: TransitionType }) => (
     </div>
 );
 
+const VideoGridBackground = () => (
+    <div className="absolute inset-0 grid grid-cols-3 md:grid-cols-4 gap-2 opacity-20 pointer-events-none z-0">
+        {HOOKS.map((h, i) => (
+             <div key={i} className="relative aspect-video bg-zinc-900 overflow-hidden rounded-lg">
+                  <video 
+                    src={h.asset} 
+                    className="w-full h-full object-cover grayscale brightness-50" 
+                    autoPlay 
+                    muted 
+                    loop 
+                    playsInline 
+                  />
+                  <div className="absolute inset-0 bg-gradient-to-t from-black via-transparent to-transparent" />
+             </div>
+        ))}
+        {HOOKS.map((h, i) => (
+             <div key={`rep-${i}`} className="relative aspect-video bg-zinc-900 overflow-hidden rounded-lg hidden md:block">
+                  <video 
+                    src={h.asset} 
+                    className="w-full h-full object-cover grayscale brightness-50" 
+                    autoPlay 
+                    muted 
+                    loop 
+                    playsInline 
+                  />
+             </div>
+        ))}
+    </div>
+);
+
 export default function App() {
   const [state, dispatch] = useReducer(reducer, initialState);
   const [isPreviewOpen, setIsPreviewOpen] = useState(false);
@@ -189,6 +221,7 @@ export default function App() {
   const [activeSceneIndex, setActiveSceneIndex] = useState(0);
   const [strategyForm, setStrategyForm] = useState<VideoStrategy | null>(null);
   const [isExporting, setIsExporting] = useState(false);
+  const [isPlayingVoice, setIsPlayingVoice] = useState(false);
 
   useEffect(() => {
       if (state.strategy) {
@@ -253,17 +286,12 @@ export default function App() {
   }, [strategyForm, state.topic, state.hookStyle, state.aspectRatio, state.userLinks]);
 
   const processSceneProduction = async (scene: Scene) => {
-      // Parallelize asset generation within the scene
       const tasks = [];
-
-      // Task 1: Audio
       tasks.push((async () => {
           dispatch({ type: 'UPDATE_ASSET_STATUS', payload: { id: scene.id, type: 'audio', status: 'loading' } });
           const audioUrl = await GeminiService.generateSpeech(scene.script, state.voice);
           dispatch({ type: 'UPDATE_SCENE_AUDIO', payload: { id: scene.id, url: audioUrl } });
       })());
-
-      // Task 2: Visual 1
       tasks.push((async () => {
           dispatch({ type: 'UPDATE_ASSET_STATUS', payload: { id: scene.id, type: 'image1', status: 'loading' } });
           const res1 = await GeminiService.generateSceneImage(scene.imagePrompt1 || scene.script, state.aspectRatio);
@@ -274,8 +302,6 @@ export default function App() {
               dispatch({ type: 'UPDATE_SCENE_VIDEO', payload: { id: scene.id, slot: 1, url: v1 } });
           }
       })());
-
-      // Task 3: Visual 2
       tasks.push((async () => {
           dispatch({ type: 'UPDATE_ASSET_STATUS', payload: { id: scene.id, type: 'image2', status: 'loading' } });
           const res2 = await GeminiService.generateSceneImage(scene.imagePrompt2 || "Alternative " + scene.script, state.aspectRatio);
@@ -286,15 +312,13 @@ export default function App() {
               dispatch({ type: 'UPDATE_SCENE_VIDEO', payload: { id: scene.id, slot: 2, url: v2 } });
           }
       })());
-
       await Promise.all(tasks);
   };
 
   const approveAndGenerate = useCallback(async () => {
      dispatch({ type: 'SET_STATUS', payload: PipelineStep.ASSET_GENERATION });
      const queue = [...state.scenes];
-     // Increase concurrency to 4 parallel scenes
-     const workers = Array.from({ length: 4 }).map(async () => {
+     const workers = Array.from({ length: 10 }).map(async () => {
          while (queue.length > 0) {
              const scene = queue.shift();
              if (scene) await processSceneProduction(scene);
@@ -303,6 +327,22 @@ export default function App() {
      await Promise.all(workers);
      dispatch({ type: 'SET_STATUS', payload: PipelineStep.COMPLETE });
   }, [state.scenes]);
+
+  const playVoiceSample = async () => {
+      if (isPlayingVoice) return;
+      setIsPlayingVoice(true);
+      try {
+          const aiStudio = (window as any).aistudio;
+          if (aiStudio?.hasSelectedApiKey && !(await aiStudio.hasSelectedApiKey())) await aiStudio?.openSelectKey?.();
+          const url = await GeminiService.generateSpeech(`Hello, I am ${selectedVoice}. Ready to narrate.`, selectedVoice);
+          const audio = new Audio(url);
+          audio.onended = () => setIsPlayingVoice(false);
+          await audio.play();
+      } catch (e) {
+          console.error(e);
+          setIsPlayingVoice(false);
+      }
+  };
 
   const handleDownload = () => {
     const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(state, null, 2));
@@ -314,14 +354,8 @@ export default function App() {
     downloadAnchorNode.remove();
   };
 
-  const handleYouTubeExport = async () => {
-    setIsExporting(true);
-    await new Promise(r => setTimeout(r, 3500));
-    alert("Project packaged for distribution. API handshake completed.");
-    setIsExporting(false);
-  };
-
   const activeResearchScene = state.scenes.find(s => s.id === researchSceneId);
+  const isLoading = state.status === PipelineStep.ANALYZING || state.status === PipelineStep.NARRATIVE || state.status === PipelineStep.SCENE_PLANNING || state.status === PipelineStep.RESEARCHING;
 
   return (
     <div className="min-h-screen bg-black text-zinc-100 flex flex-col font-sans selection:bg-blue-500/30">
@@ -333,36 +367,37 @@ export default function App() {
           </div>
           <div className="flex items-center gap-4">
              {(window as any).aistudio?.openSelectKey && <button onClick={() => (window as any).aistudio?.openSelectKey?.()} className="text-xs font-mono text-zinc-400 hover:text-white flex items-center gap-1"><Key size={12} /> API KEY</button>}
-             <div className="text-xs font-mono text-zinc-600 bg-zinc-900 px-3 py-1 rounded-full border border-zinc-800">v0.5.0</div>
+             <div className="text-xs font-mono text-zinc-600 bg-zinc-900 px-3 py-1 rounded-full border border-zinc-800">v0.5.1</div>
           </div>
         </div>
       </header>
 
       <main className="flex-1 flex flex-col pt-16 relative">
-        {(state.status === PipelineStep.ANALYZING || state.status === PipelineStep.NARRATIVE || state.status === PipelineStep.SCENE_PLANNING) && (
+        {isLoading && (
             <FallingText topic={state.topic} statusText={state.logs[state.logs.length - 1]} />
         )}
 
         {state.status === PipelineStep.IDLE ? (
            <div className="flex-1 flex flex-col items-center justify-center px-4 py-20 relative overflow-hidden">
-             <div className="absolute top-0 left-1/2 -translate-x-1/2 w-[1000px] h-[500px] bg-blue-600/10 rounded-full blur-[120px] pointer-events-none" />
+             <VideoGridBackground />
+             <div className="absolute inset-0 bg-gradient-to-t from-black via-black/80 to-transparent z-0" />
              <div className="w-full max-w-3xl relative z-10 space-y-10">
                <div className="text-center space-y-6">
-                  <h2 className="text-6xl md:text-7xl font-bold tracking-tighter text-white">Story to Video.</h2>
-                  <p className="text-zinc-400 text-xl max-w-xl mx-auto leading-relaxed">Dual-visual wireframing & multi-agent production.</p>
+                  <h2 className="text-6xl md:text-7xl font-bold tracking-tighter text-white drop-shadow-2xl">Story to Video.</h2>
+                  <p className="text-zinc-400 text-xl max-w-xl mx-auto leading-relaxed drop-shadow-md">Dual-visual wireframing & multi-agent production.</p>
                </div>
-               <div className="bg-zinc-900/50 backdrop-blur-xl border border-white/10 rounded-2xl p-2 shadow-2xl">
+               <div className="bg-zinc-900/80 backdrop-blur-xl border border-white/10 rounded-2xl p-2 shadow-2xl">
                    <form onSubmit={(e) => { e.preventDefault(); if (inputValue.trim()) startAnalysis(inputValue); }} className="flex flex-col gap-2">
                       <div className="flex items-start px-4 py-4 gap-4">
                          <div className="pt-1 text-zinc-500"><BrainCircuit size={24} /></div>
-                         <input type="text" value={inputValue} onChange={(e) => setInputValue(e.target.value)} placeholder="Enter topic or URL..." className="w-full bg-transparent border-none text-xl focus:ring-0 placeholder:text-zinc-600 outline-none text-white font-medium" autoFocus />
+                         <input type="text" value={inputValue} onChange={(e) => setInputValue(e.target.value)} placeholder="Enter topic or URL..." className="w-full bg-transparent border-none text-xl focus:ring-0 placeholder:text-zinc-500 outline-none text-white font-medium" autoFocus />
                       </div>
-                      <div className="bg-black/40 rounded-xl p-3 flex flex-wrap items-center gap-4">
+                      <div className="bg-black/60 rounded-xl p-3 flex flex-wrap items-center gap-4">
                          <div className="flex items-center gap-2 overflow-x-auto pb-2 md:pb-0 hide-scrollbar">
                             {HOOKS.map(hook => (
                                 <button key={hook.id} type="button" onClick={() => setSelectedHook(hook.id)} className={`relative flex-shrink-0 w-28 h-16 rounded-lg overflow-hidden border transition-all ${selectedHook === hook.id ? 'border-blue-500 ring-2 ring-blue-500/20' : 'border-white/10 opacity-60 hover:opacity-100'}`}>
                                    {hook.type === 'video' ? <video src={hook.asset} className="w-full h-full object-cover" muted /> : <img src={hook.asset} className="w-full h-full object-cover" />}
-                                   <div className="absolute inset-0 bg-black/60 flex items-center justify-center"><span className="text-[9px] font-bold text-white uppercase px-1">{hook.label}</span></div>
+                                   <div className="absolute inset-0 bg-black/60 flex items-center justify-center"><span className="text-[9px] font-bold text-white uppercase px-1 text-center">{hook.label}</span></div>
                                 </button>
                             ))}
                          </div>
@@ -372,9 +407,19 @@ export default function App() {
                                <button type="button" onClick={() => setSelectedAspectRatio('16:9')} className={`p-2 rounded-lg border ${selectedAspectRatio === '16:9' ? 'bg-zinc-800 text-white' : 'text-zinc-500'}`}><Monitor size={18} /></button>
                                <button type="button" onClick={() => setSelectedAspectRatio('9:16')} className={`p-2 rounded-lg border ${selectedAspectRatio === '9:16' ? 'bg-zinc-800 text-white' : 'text-zinc-500'}`}><Smartphone size={18} /></button>
                              </div>
-                             <select value={selectedVoice} onChange={(e) => setSelectedVoice(e.target.value)} className="bg-zinc-800 border border-zinc-700 text-white text-xs rounded-lg px-3 py-2 outline-none">
-                                  {VOICES.map(v => <option key={v.id} value={v.id}>{v.label}</option>)}
-                             </select>
+                             <div className="flex items-center gap-1">
+                                 <select value={selectedVoice} onChange={(e) => setSelectedVoice(e.target.value)} className="bg-zinc-800 border border-zinc-700 text-white text-xs rounded-lg px-3 py-2 outline-none">
+                                      {VOICES.map(v => <option key={v.id} value={v.id}>{v.label}</option>)}
+                                 </select>
+                                 <button 
+                                    type="button" 
+                                    onClick={playVoiceSample} 
+                                    disabled={isPlayingVoice}
+                                    className="p-2 bg-zinc-800 hover:bg-zinc-700 rounded-lg text-zinc-300 disabled:opacity-50 transition-colors"
+                                 >
+                                    {isPlayingVoice ? <Loader2 size={14} className="animate-spin" /> : <Play size={14} />}
+                                 </button>
+                             </div>
                          </div>
                          <button type="submit" className="ml-auto px-6 py-3 bg-white text-black font-bold rounded-xl hover:bg-zinc-200 transition-colors flex items-center gap-2 text-sm">Create <ArrowRight size={16} /></button>
                       </div>
@@ -384,101 +429,85 @@ export default function App() {
            </div>
         ) : (
           <div className="flex-1 flex flex-col w-full px-6 py-8 relative z-10">
-            <div className="max-w-6xl mx-auto w-full">
-                <PipelineSteps currentStep={state.status} />
-                
-                {state.status === PipelineStep.COMPLETE && (
-                    <div className="mx-auto max-w-4xl bg-zinc-900 border border-zinc-700 p-8 rounded-3xl flex flex-col items-center text-center gap-6 mb-12 shadow-2xl animate-in zoom-in-95 duration-500">
-                        <div className="w-16 h-16 bg-blue-500/20 rounded-full flex items-center justify-center text-blue-400 mb-2">
-                            <CheckCircle2 size={32} />
-                        </div>
-                        <div>
-                            <h2 className="text-3xl font-black text-white mb-2 uppercase tracking-tight">Project Finalized</h2>
-                            <p className="text-zinc-500 font-mono text-sm uppercase tracking-widest">Distributed components synchronized</p>
-                        </div>
-                        <div className="flex gap-4 w-full">
-                            <button onClick={handleDownload} className="flex-1 px-6 py-4 bg-zinc-800 hover:bg-zinc-700 text-white font-bold rounded-2xl flex items-center justify-center gap-3"><Download size={20} /> Project File</button>
-                            <button onClick={handleYouTubeExport} disabled={isExporting} className="flex-1 px-6 py-4 bg-red-600 hover:bg-red-500 text-white font-bold rounded-2xl flex items-center justify-center gap-3">
-                                {isExporting ? <Loader2 className="animate-spin" size={20} /> : <Youtube size={20} />}
-                                YouTube Export
-                            </button>
-                            <button onClick={() => setIsPreviewOpen(true)} className="flex-1 px-6 py-4 bg-blue-600 hover:bg-blue-500 text-white font-bold rounded-2xl flex items-center justify-center gap-3"><PlayCircle size={20} /> Master Preview</button>
-                        </div>
+             {/* ERROR DISPLAY */}
+             {state.status === PipelineStep.ERROR && (
+                 <div className="max-w-4xl mx-auto w-full mb-8 bg-red-950/30 border border-red-500/30 p-8 rounded-3xl flex items-start gap-6 backdrop-blur-xl">
+                    <div className="p-4 bg-red-500/10 rounded-2xl border border-red-500/20">
+                        <AlertCircle size={32} className="text-red-500" />
                     </div>
-                )}
-            </div>
+                    <div className="flex-1">
+                        <h3 className="text-2xl font-bold text-white mb-2">System Halt</h3>
+                        <p className="text-red-200/80 mb-6 font-mono text-sm">{state.error || "Critical failure in the agentic pipeline."}</p>
+                        <button onClick={() => dispatch({ type: 'RESET' })} className="px-6 py-3 bg-red-600 hover:bg-red-500 text-white rounded-xl font-bold flex items-center gap-2 transition-all">
+                            <RefreshCcw size={18} /> Reboot System
+                        </button>
+                    </div>
+                 </div>
+             )}
 
-            {state.status === PipelineStep.STRATEGY && strategyForm && (
-                <div className="max-w-4xl mx-auto w-full">
-                    <div className="bg-zinc-900 border border-zinc-800 rounded-3xl p-8 shadow-2xl">
-                        <div className="flex justify-between items-center mb-6">
-                            <h2 className="text-3xl font-bold text-white uppercase tracking-widest flex items-center gap-3">
-                                <Activity className="text-blue-500" /> Blueprint Strategy
-                            </h2>
-                            <div className="flex gap-2">
-                                <button 
-                                    onClick={() => startAnalysis(state.topic)}
-                                    className="p-3 rounded-xl border border-zinc-700 text-zinc-400 hover:bg-zinc-800 hover:text-white transition-all flex items-center gap-2 text-xs uppercase font-bold tracking-widest"
-                                >
-                                    <RefreshCcw size={16} /> Regenerate
-                                </button>
+             {/* STRATEGY VIEW */}
+             {state.status === PipelineStep.STRATEGY && strategyForm && (
+                <div className="max-w-3xl mx-auto w-full mt-10">
+                    <div className="bg-zinc-900/80 backdrop-blur-xl border border-white/10 rounded-3xl p-8 shadow-2xl relative overflow-hidden">
+                        <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-blue-500 via-purple-500 to-pink-500" />
+                        
+                        <div className="flex items-center gap-4 mb-8">
+                            <div className="w-12 h-12 bg-blue-500/10 rounded-2xl flex items-center justify-center border border-blue-500/20">
+                                <Target size={24} className="text-blue-500" />
+                            </div>
+                            <div>
+                                <h2 className="text-2xl font-bold text-white">Strategic Alignment</h2>
+                                <p className="text-zinc-400 text-sm">Review agent analysis before production.</p>
                             </div>
                         </div>
 
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-8">
-                            <div className="bg-black/60 rounded-2xl p-6 border border-zinc-800/50">
-                                <label className="text-xs font-bold text-blue-400 uppercase mb-3 block tracking-widest">Core Narrative Summary</label>
+                        <div className="space-y-6">
+                            <div className="space-y-2">
+                                <label className="text-xs font-bold text-zinc-500 uppercase tracking-widest ml-1">Core Objective</label>
+                                <div className="bg-black/50 rounded-xl p-4 border border-zinc-800 text-zinc-300">
+                                    {strategyForm.keyObjective}
+                                </div>
+                            </div>
+                            <div className="space-y-2">
+                                <label className="text-xs font-bold text-zinc-500 uppercase tracking-widest ml-1">Executive Summary</label>
                                 <textarea 
-                                    value={strategyForm.summary} 
-                                    onChange={(e) => setStrategyForm({...strategyForm, summary: e.target.value})}
-                                    className="w-full h-32 bg-transparent text-lg text-zinc-100 placeholder-zinc-700 focus:outline-none resize-none leading-relaxed"
-                                    placeholder="Enter summary..."
+                                    value={strategyForm.summary}
+                                    onChange={(e) => setStrategyForm(prev => prev ? ({...prev, summary: e.target.value}) : null)}
+                                    className="w-full h-32 bg-black/50 border border-zinc-800 rounded-xl p-4 text-white focus:outline-none focus:border-blue-500/50 transition-colors resize-none"
                                 />
                             </div>
-                            <div className="space-y-6">
-                                <div className="bg-black/60 rounded-2xl p-6 border border-zinc-800/50">
-                                    <label className="text-xs font-bold text-purple-400 uppercase mb-2 block tracking-widest">Key Objective</label>
+                            <div className="grid grid-cols-2 gap-4">
+                                <div className="space-y-2">
+                                    <label className="text-xs font-bold text-zinc-500 uppercase tracking-widest ml-1">Target Audience</label>
                                     <input 
-                                        type="text" 
-                                        value={strategyForm.keyObjective} 
-                                        onChange={(e) => setStrategyForm({...strategyForm, keyObjective: e.target.value})}
-                                        className="w-full bg-transparent text-sm text-zinc-300 focus:outline-none"
+                                        value={strategyForm.targetAudience}
+                                        onChange={(e) => setStrategyForm(prev => prev ? ({...prev, targetAudience: e.target.value}) : null)}
+                                        className="w-full bg-black/50 border border-zinc-800 rounded-xl p-4 text-white focus:outline-none focus:border-blue-500/50 transition-colors"
                                     />
                                 </div>
-                                <div className="grid grid-cols-2 gap-6">
-                                    <div className="bg-black/60 rounded-2xl p-6 border border-zinc-800/50">
-                                        <label className="text-xs font-bold text-green-400 uppercase mb-2 block tracking-widest">Target Audience</label>
-                                        <input 
-                                            type="text" 
-                                            value={strategyForm.targetAudience} 
-                                            onChange={(e) => setStrategyForm({...strategyForm, targetAudience: e.target.value})}
-                                            className="w-full bg-transparent text-sm text-zinc-300 focus:outline-none"
-                                        />
-                                    </div>
-                                    <div className="bg-black/60 rounded-2xl p-6 border border-zinc-800/50">
-                                        <label className="text-xs font-bold text-orange-400 uppercase mb-2 block tracking-widest">Tone & Style</label>
-                                        <input 
-                                            type="text" 
-                                            value={strategyForm.toneStyle} 
-                                            onChange={(e) => setStrategyForm({...strategyForm, toneStyle: e.target.value})}
-                                            className="w-full bg-transparent text-sm text-zinc-300 focus:outline-none"
-                                        />
-                                    </div>
+                                <div className="space-y-2">
+                                    <label className="text-xs font-bold text-zinc-500 uppercase tracking-widest ml-1">Tone & Style</label>
+                                    <input 
+                                        value={strategyForm.toneStyle}
+                                        onChange={(e) => setStrategyForm(prev => prev ? ({...prev, toneStyle: e.target.value}) : null)}
+                                        className="w-full bg-black/50 border border-zinc-800 rounded-xl p-4 text-white focus:outline-none focus:border-blue-500/50 transition-colors"
+                                    />
                                 </div>
                             </div>
                         </div>
 
-                        <button 
-                            onClick={confirmStrategyAndPlan} 
-                            className="w-full py-5 bg-white text-black font-black uppercase tracking-widest rounded-2xl flex items-center justify-center gap-3 transition-transform hover:scale-[1.01] shadow-lg shadow-white/10"
-                        >
-                            <Zap size={20} className="fill-black" /> Approve & Initiate Planning Agents
-                        </button>
+                        <div className="mt-10 flex items-center justify-end gap-4 border-t border-white/5 pt-6">
+                            <button onClick={() => dispatch({ type: 'RESET' })} className="px-6 py-3 text-zinc-500 hover:text-white font-medium transition-colors">Abort</button>
+                            <button onClick={confirmStrategyAndPlan} className="px-8 py-3 bg-blue-600 hover:bg-blue-500 text-white rounded-xl font-bold flex items-center gap-2 shadow-lg shadow-blue-500/20 transition-all hover:scale-105">
+                                <BrainCircuit size={18} /> Generate Narrative
+                            </button>
+                        </div>
                     </div>
                 </div>
             )}
 
-            {(state.status === PipelineStep.REVIEW || state.status === PipelineStep.RESEARCHING || state.status === PipelineStep.ASSET_GENERATION || state.status === PipelineStep.COMPLETE) && (
+            {/* MAIN DASHBOARD */}
+            {state.status !== PipelineStep.STRATEGY && state.status !== PipelineStep.ERROR && (
                 <div className="max-w-6xl mx-auto w-full space-y-4">
                     <div className="flex justify-between items-end border-b border-zinc-800 pb-8 mb-8">
                         <div>
@@ -486,25 +515,39 @@ export default function App() {
                             {state.status === PipelineStep.ASSET_GENERATION && <ProductionTimer />}
                         </div>
                         <div className="flex gap-4">
-                            <button onClick={() => setIsPreviewOpen(true)} className="px-6 py-3 bg-white text-black font-bold rounded-full flex items-center gap-2"><PlayCircle size={20} /> Launch Preview</button>
-                            {state.status === PipelineStep.REVIEW && <button onClick={approveAndGenerate} className="px-6 py-3 bg-blue-600 text-white font-bold rounded-full flex items-center gap-2">Deploy Production <ArrowRight size={18} /></button>}
+                            {state.status !== PipelineStep.REVIEW && state.status !== PipelineStep.ANALYZING && state.status !== PipelineStep.SCENE_PLANNING && (
+                                <button onClick={() => setIsPreviewOpen(true)} className="px-6 py-3 bg-white text-black font-bold rounded-full flex items-center gap-2 hover:bg-zinc-200 transition-colors"><PlayCircle size={20} /> Launch Preview</button>
+                            )}
+                            {state.status === PipelineStep.REVIEW && <button onClick={approveAndGenerate} className="px-6 py-3 bg-blue-600 text-white font-bold rounded-full flex items-center gap-2 hover:bg-blue-500 transition-colors">Deploy Production <ArrowRight size={18} /></button>}
+                            {state.status === PipelineStep.COMPLETE && (
+                                <button onClick={() => setIsExporting(true)} className="px-6 py-3 bg-red-600 text-white font-bold rounded-full flex items-center gap-2 animate-pulse hover:bg-red-500 transition-colors">
+                                    <Youtube size={20} /> Export Video
+                                </button>
+                            )}
                         </div>
                     </div>
-                    {state.scenes.map((scene, index) => (
-                        <React.Fragment key={scene.id}>
-                            <SceneCard 
-                                scene={scene} 
-                                index={index} 
-                                status={state.status} 
-                                onViewResearch={(e) => { e.stopPropagation(); setResearchSceneId(scene.id); }} 
-                                onEditScript={(e) => { e.stopPropagation(); setEditingSceneId(scene.id); setEditScriptText(scene.script); }} 
-                                onUpdateTransition={(id, type, t) => dispatch({ type: 'UPDATE_SCENE_TRANSITION', payload: { id, type, transition: t } })}
-                            />
-                            {index < state.scenes.length - 1 && (
-                                <TransitionNode type={state.scenes[index + 1].transitionIn} />
-                            )}
-                        </React.Fragment>
-                    ))}
+                    {state.scenes.length === 0 && !isLoading ? (
+                        <div className="flex flex-col items-center justify-center py-20 text-zinc-700">
+                             <Loader2 size={40} className="mb-4 animate-spin opacity-50"/>
+                             <p className="font-mono text-xs uppercase tracking-widest">Waiting for scene data...</p>
+                        </div>
+                    ) : (
+                        state.scenes.map((scene, index) => (
+                            <React.Fragment key={scene.id}>
+                                <SceneCard 
+                                    scene={scene} 
+                                    index={index} 
+                                    status={state.status} 
+                                    onViewResearch={(e) => { e.stopPropagation(); setResearchSceneId(scene.id); }} 
+                                    onEditScript={(e) => { e.stopPropagation(); setEditingSceneId(scene.id); setEditScriptText(scene.script); }} 
+                                    onUpdateTransition={(id, type, t) => dispatch({ type: 'UPDATE_SCENE_TRANSITION', payload: { id, type, transition: t } })}
+                                />
+                                {index < state.scenes.length - 1 && (
+                                    <TransitionNode type={state.scenes[index + 1].transitionIn} />
+                                )}
+                            </React.Fragment>
+                        ))
+                    )}
                 </div>
             )}
           </div>
@@ -520,7 +563,16 @@ export default function App() {
           </div>
       )}
 
-      {isPreviewOpen && state.scenes.length > 0 && <PreviewPlayer scenes={state.scenes} onClose={() => setIsPreviewOpen(false)} />}
+      {isPreviewOpen && state.scenes.length > 0 && <PreviewPlayer scenes={state.scenes} hookStyle={state.hookStyle} onClose={() => setIsPreviewOpen(false)} />}
+      
+      {isExporting && (
+          <YouTubeModal 
+            scenes={state.scenes} 
+            aspectRatio={selectedAspectRatio} 
+            onClose={() => setIsExporting(false)} 
+          />
+      )}
+
       {activeResearchScene && <ResearchPopup scene={activeResearchScene} onClose={() => setResearchSceneId(null)} onMixAssets={async (a, b) => { try { const { imageUrl } = await GeminiService.mixAssets(a, b, state.aspectRatio); dispatch({ type: 'UPDATE_SCENE_IMAGE', payload: { id: researchSceneId!, slot: 1, url: imageUrl } }); } catch (e) { console.error(e); } }} />}
     </div>
   );

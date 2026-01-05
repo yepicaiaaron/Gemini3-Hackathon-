@@ -1,14 +1,15 @@
 
 import React, { useState, useEffect, useRef } from 'react';
-import { Scene, TransitionType } from '../types';
-import { X, Play, Pause, Volume2, VolumeX, SkipForward, SkipBack } from 'lucide-react';
+import { Scene, TransitionType, HookStyle } from '../types';
+import { X, Play, Pause, Volume2, VolumeX, SkipForward, SkipBack, Zap, Newspaper, Type } from 'lucide-react';
 
 interface PreviewPlayerProps {
   scenes: Scene[];
+  hookStyle?: HookStyle;
   onClose: () => void;
 }
 
-export const PreviewPlayer: React.FC<PreviewPlayerProps> = ({ scenes, onClose }) => {
+export const PreviewPlayer: React.FC<PreviewPlayerProps> = ({ scenes, hookStyle = 'AI_SELECTED', onClose }) => {
   const [isPlaying, setIsPlaying] = useState(true);
   const [currentSceneIndex, setCurrentSceneIndex] = useState(0);
   const [currentTime, setCurrentTime] = useState(0);
@@ -19,11 +20,16 @@ export const PreviewPlayer: React.FC<PreviewPlayerProps> = ({ scenes, onClose })
   const [isTransitioning, setIsTransitioning] = useState(false);
   
   const audioRef = useRef<HTMLAudioElement | null>(null);
-  
+  const videoARef = useRef<HTMLVideoElement | null>(null);
+  const videoBRef = useRef<HTMLVideoElement | null>(null);
+
   const currentScene = scenes[currentSceneIndex];
-  // Calculate if we should show Asset A or B based on time split (50/50 for now)
+  // Calculate if we should show Asset A or B based on time split
   const isSlotB = currentTime > (duration / 2);
   
+  // Apply Speed modifiers based on hook style
+  const playbackSpeed = hookStyle === 'FAST_CUT' ? 1.25 : 1.0;
+
   // Determine active transition style
   const activeTransitionStyle = isTransitioning 
     ? getTransitionStyle(currentScene.transitionIn) 
@@ -44,6 +50,7 @@ export const PreviewPlayer: React.FC<PreviewPlayerProps> = ({ scenes, onClose })
     if (currentScene.audioUrl) {
         const audio = new Audio(currentScene.audioUrl);
         audio.volume = isMuted ? 0 : 1;
+        audio.playbackRate = playbackSpeed;
         audioRef.current = audio;
         
         audio.onloadedmetadata = () => {
@@ -74,7 +81,7 @@ export const PreviewPlayer: React.FC<PreviewPlayerProps> = ({ scenes, onClose })
         const start = Date.now();
         const timer = setInterval(() => {
             if(!isPlaying) return;
-            const elapsed = (Date.now() - start) / 1000;
+            const elapsed = ((Date.now() - start) / 1000) * playbackSpeed;
             setCurrentTime(elapsed);
             if(elapsed >= mockDuration) {
                 clearInterval(timer);
@@ -88,17 +95,22 @@ export const PreviewPlayer: React.FC<PreviewPlayerProps> = ({ scenes, onClose })
         return () => clearInterval(timer);
     }
     
-    // End "Transition In" after delay
-    const t = setTimeout(() => setIsTransitioning(false), 800);
+    // End "Transition In" after delay (shorter for Fast Cut)
+    const transitionTime = hookStyle === 'FAST_CUT' ? 400 : 800;
+    const t = setTimeout(() => setIsTransitioning(false), transitionTime);
     return () => clearTimeout(t);
 
-  }, [currentSceneIndex, scenes, isPlaying]); // Effect re-runs when scene index changes
+  }, [currentSceneIndex, scenes, isPlaying, playbackSpeed, hookStyle]); 
 
   useEffect(() => {
      if(audioRef.current) {
          if(isPlaying) audioRef.current.play().catch(()=>{});
          else audioRef.current.pause();
      }
+     // Also handle video refs if they exist
+     if(videoARef.current) isPlaying ? videoARef.current.play() : videoARef.current.pause();
+     if(videoBRef.current) isPlaying ? videoBRef.current.play() : videoBRef.current.pause();
+
   }, [isPlaying]);
 
   useEffect(() => {
@@ -122,14 +134,122 @@ export const PreviewPlayer: React.FC<PreviewPlayerProps> = ({ scenes, onClose })
       }
   }
 
+  // Strategic Editing: Layout & Animation Logic
+  const renderLayout = () => {
+    const urlA = getAssetA();
+    const urlB = getAssetB();
+    const activeUrl = isSlotB ? urlB : urlA;
+
+    // Common Video Props
+    const videoProps = {
+        autoPlay: true,
+        muted: true,
+        loop: true,
+        playsInline: true,
+        className: "w-full h-full object-cover"
+    };
+
+    const AssetView = ({ url, isActive }: { url?: string, isActive: boolean }) => {
+        if (!url) return <div className="w-full h-full bg-zinc-900 flex items-center justify-center text-zinc-800">NO ASSET</div>;
+        const isVideo = url.match(/\.(mp4|webm)|blob:http/);
+        
+        // Ken Burns Effect Logic
+        const kbClass = isActive && hookStyle !== 'ARTICLE_HIGHLIGHT' ? 
+            (isSlotB ? 'animate-ken-burns-out' : 'animate-ken-burns-in') : '';
+        
+        const fastCutClass = hookStyle === 'FAST_CUT' ? 'scale-[1.02]' : '';
+
+        return (
+            <div className={`w-full h-full overflow-hidden ${kbClass} ${fastCutClass} transition-transform duration-[10s]`}>
+                {isVideo ? (
+                    <video src={url} {...videoProps} ref={isActive ? (isSlotB ? videoBRef : videoARef) : null} />
+                ) : (
+                    <img src={url} className="w-full h-full object-cover" alt="asset" />
+                )}
+            </div>
+        );
+    };
+
+    // LAYOUT: ARTICLE HIGHLIGHT (Split Screen)
+    if (hookStyle === 'ARTICLE_HIGHLIGHT') {
+        return (
+            <div className="flex w-full h-full bg-zinc-900">
+                <div className="w-1/2 h-full relative border-r border-white/10">
+                   <div className="absolute inset-0 bg-black/50 z-10" />
+                   <AssetView url={activeUrl} isActive={true} />
+                </div>
+                <div className="w-1/2 h-full p-12 flex flex-col justify-center bg-white text-black">
+                    <div className="w-12 h-1 bg-black mb-6" />
+                    <h3 className="text-sm font-bold uppercase tracking-widest mb-4 text-zinc-500">Key Insight</h3>
+                    <p className="text-2xl md:text-3xl font-serif font-bold leading-tight">
+                        "{currentScene.script}"
+                    </p>
+                </div>
+            </div>
+        );
+    }
+
+    // LAYOUT: TEXT MATCH (Kinetic Type)
+    if (hookStyle === 'TEXT_MATCH') {
+        return (
+            <div className="w-full h-full relative">
+                <div className="absolute inset-0 opacity-40 mix-blend-multiply">
+                    <AssetView url={activeUrl} isActive={true} />
+                </div>
+                <div className="absolute inset-0 flex items-center justify-center p-12">
+                     <h2 className="text-4xl md:text-6xl font-black text-white text-center uppercase tracking-tighter leading-none animate-in zoom-in-50 duration-300 drop-shadow-[0_10px_10px_rgba(0,0,0,0.8)]">
+                         {currentScene.script}
+                     </h2>
+                </div>
+            </div>
+        );
+    }
+
+    // LAYOUT: DEFAULT & FAST CUT (Cinematic)
+    return (
+        <div className="w-full h-full relative">
+            <AssetView url={activeUrl} isActive={true} />
+            <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-black/20 pointer-events-none" />
+            <div className="absolute bottom-16 left-0 right-0 z-40 text-center px-16 pointer-events-none">
+                <div className="inline-block px-8 py-4 bg-black/40 backdrop-blur-xl rounded-xl border border-white/10 transition-all duration-300">
+                    <p className="text-white/90 text-lg md:text-xl font-medium leading-relaxed max-w-4xl mx-auto shadow-black drop-shadow-md">
+                        {currentScene.script}
+                    </p>
+                </div>
+            </div>
+        </div>
+    );
+  };
+
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/98 p-4 md:p-12 animate-in fade-in duration-300 backdrop-blur-3xl">
+      <style>{`
+        @keyframes ken-burns-in {
+          0% { transform: scale(1); }
+          100% { transform: scale(1.15); }
+        }
+        @keyframes ken-burns-out {
+          0% { transform: scale(1.15); }
+          100% { transform: scale(1); }
+        }
+        .animate-ken-burns-in { animation: ken-burns-in 20s ease-out forwards; }
+        .animate-ken-burns-out { animation: ken-burns-out 20s ease-out forwards; }
+      `}</style>
       <div className="relative w-full max-w-6xl aspect-video bg-black rounded-3xl overflow-hidden shadow-[0_0_100px_rgba(0,0,0,1)] border border-white/5 flex flex-col group">
         
         {/* Top Controls */}
         <div className="absolute top-0 left-0 right-0 z-30 p-6 flex items-center justify-between bg-gradient-to-b from-black/80 to-transparent opacity-0 group-hover:opacity-100 transition-opacity">
            <div className="flex items-center gap-4">
-              <div className="px-3 py-1 bg-blue-600 rounded-md font-mono text-[10px] font-black uppercase tracking-widest text-white">MASTER PREVIEW</div>
+              <div className={`px-3 py-1 rounded-md font-mono text-[10px] font-black uppercase tracking-widest text-white flex items-center gap-2 ${
+                  hookStyle === 'FAST_CUT' ? 'bg-red-600' : 
+                  hookStyle === 'ARTICLE_HIGHLIGHT' ? 'bg-yellow-600' : 
+                  hookStyle === 'TEXT_MATCH' ? 'bg-blue-600' : 'bg-zinc-600'
+              }`}>
+                  {hookStyle === 'FAST_CUT' && <Zap size={10} />}
+                  {hookStyle === 'ARTICLE_HIGHLIGHT' && <Newspaper size={10} />}
+                  {hookStyle === 'TEXT_MATCH' && <Type size={10} />}
+                  {hookStyle.replace('_', ' ')} MODE
+              </div>
               <h3 className="font-mono text-xs text-zinc-400 uppercase tracking-tighter">
                   SCENE {currentSceneIndex + 1} / {scenes.length} • {isSlotB ? 'CLIP B' : 'CLIP A'}
               </h3>
@@ -142,25 +262,14 @@ export const PreviewPlayer: React.FC<PreviewPlayerProps> = ({ scenes, onClose })
             {/* The Asset Render */}
             <div 
                 key={`${currentScene.id}-${isSlotB ? 'B' : 'A'}`} 
-                className="absolute inset-0 w-full h-full transition-all duration-700 ease-in-out"
+                className="absolute inset-0 w-full h-full transition-all duration-300 ease-out"
                 style={{
-                   // Apply transition in logic here for scene start
                    ...(isTransitioning ? activeTransitionStyle : { opacity: 1, transform: 'none', filter: 'none' }),
-                   // Simple internal cut/fade logic for A->B handled by key change animation
-                   animation: isSlotB && currentScene.transitionMid === 'GLITCH' ? 'pulse 0.2s 2' : 'none' 
+                   // Apply glitch effect for mid-clip cut if specified
+                   animation: isSlotB && currentScene.transitionMid === 'GLITCH' ? 'pulse 0.1s 3' : 'none' 
                 }}
             >
-                <AssetRenderer url={isSlotB ? getAssetB() : getAssetA()} />
-                <div className="absolute inset-0 bg-gradient-to-t from-black/50 to-transparent pointer-events-none" />
-            </div>
-
-            {/* Subtitles */}
-            <div className="absolute bottom-16 left-0 right-0 z-40 text-center px-16 pointer-events-none">
-                <div className="inline-block px-8 py-4 bg-black/70 backdrop-blur-md rounded-xl border border-white/5 transition-all duration-300">
-                    <p className="text-white/90 text-lg md:text-xl font-serif italic leading-relaxed max-w-4xl mx-auto">
-                        {currentScene.script}
-                    </p>
-                </div>
+                {renderLayout()}
             </div>
         </div>
 
@@ -192,21 +301,11 @@ export const PreviewPlayer: React.FC<PreviewPlayerProps> = ({ scenes, onClose })
                  </button>
              </div>
              <div className="font-mono text-[10px] text-zinc-600 uppercase tracking-widest">
-                 AUDIO DRIVEN PLAYBACK • {currentTime.toFixed(1)}s / {duration.toFixed(1)}s
+                 AUDIO DRIVEN PLAYBACK • {currentTime.toFixed(1)}s / {duration.toFixed(1)}s ({playbackSpeed}x)
              </div>
         </div>
 
       </div>
     </div>
   );
-};
-
-const AssetRenderer = ({ url }: { url?: string }) => {
-    if (!url) return <div className="w-full h-full bg-zinc-900 flex items-center justify-center text-zinc-800 font-mono text-xs">NO ASSET</div>;
-    const isVideo = url.match(/\.(mp4|webm)|blob:http/);
-    return isVideo ? (
-        <video src={url} className="w-full h-full object-cover" autoPlay muted loop playsInline />
-    ) : (
-        <img src={url} className="w-full h-full object-cover" alt="Scene Asset" />
-    );
 };
