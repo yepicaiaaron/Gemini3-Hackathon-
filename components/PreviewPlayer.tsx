@@ -149,6 +149,9 @@ export const PreviewPlayer: React.FC<PreviewPlayerProps> = ({ scenes, hookStyle 
         className: "w-full h-full object-cover"
     };
 
+    // PERFORMANCE: Force GPU acceleration to prevent jitter
+    const hardwareAccelClass = "will-change-transform [backface-visibility:hidden] [transform:translateZ(0)]";
+
     const AssetView = ({ url, isActive }: { url?: string, isActive: boolean }) => {
         if (!url) return <div className="w-full h-full bg-zinc-900 flex items-center justify-center text-zinc-800">NO ASSET</div>;
         const isVideo = url.match(/\.(mp4|webm)|blob:http/);
@@ -160,7 +163,7 @@ export const PreviewPlayer: React.FC<PreviewPlayerProps> = ({ scenes, hookStyle 
         const fastCutClass = hookStyle === 'FAST_CUT' ? 'scale-[1.02]' : '';
 
         return (
-            <div className={`w-full h-full overflow-hidden ${kbClass} ${fastCutClass} transition-transform duration-[10s]`}>
+            <div className={`w-full h-full overflow-hidden ${kbClass} ${fastCutClass} ${hardwareAccelClass} transition-transform duration-[10s]`}>
                 {isVideo ? (
                     <video src={url} {...videoProps} ref={isActive ? (isSlotB ? videoBRef : videoARef) : null} />
                 ) : (
@@ -225,15 +228,15 @@ export const PreviewPlayer: React.FC<PreviewPlayerProps> = ({ scenes, hookStyle 
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/98 p-4 md:p-12 animate-in fade-in duration-300 backdrop-blur-3xl">
       <style>{`
         @keyframes ken-burns-in {
-          0% { transform: scale(1); }
-          100% { transform: scale(1.15); }
+          0% { transform: scale(1) translateZ(0); }
+          100% { transform: scale(1.15) translateZ(0); }
         }
         @keyframes ken-burns-out {
-          0% { transform: scale(1.15); }
-          100% { transform: scale(1); }
+          0% { transform: scale(1.15) translateZ(0); }
+          100% { transform: scale(1) translateZ(0); }
         }
-        .animate-ken-burns-in { animation: ken-burns-in 20s ease-out forwards; }
-        .animate-ken-burns-out { animation: ken-burns-out 20s ease-out forwards; }
+        .animate-ken-burns-in { animation: ken-burns-in 20s ease-out forwards; will-change: transform; }
+        .animate-ken-burns-out { animation: ken-burns-out 20s ease-out forwards; will-change: transform; }
       `}</style>
       <div className="relative w-full max-w-6xl aspect-video bg-black rounded-3xl overflow-hidden shadow-[0_0_100px_rgba(0,0,0,1)] border border-white/5 flex flex-col group">
         

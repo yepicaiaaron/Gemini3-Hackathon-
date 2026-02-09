@@ -1,5 +1,5 @@
 import { GoogleGenAI, Type, Modality } from "@google/genai";
-import { NarrativeBeat, Scene, GroundingChunk, VisualEffect, VideoStrategy, HookStyle, AspectRatio, AssetRecord } from "../types";
+import { NarrativeBeat, Scene, GroundingChunk, VisualEffect, VideoStrategy, HookStyle, AspectRatio, AssetRecord, VideoDuration } from "../types";
 import { AssetDb } from "./assetDb";
 
 const TEXT_MODEL = "gemini-3-pro-preview"; 
@@ -71,9 +71,13 @@ export const analyzeRequest = async (input: string): Promise<VideoStrategy> => {
   });
 };
 
-export const generateNarrative = async (topic: string, hookStyle: HookStyle, strategy?: VideoStrategy): Promise<NarrativeBeat[]> => {
+export const generateNarrative = async (topic: string, hookStyle: HookStyle, duration: VideoDuration, strategy?: VideoStrategy): Promise<NarrativeBeat[]> => {
   const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
-  const prompt = `Act as a Master Storyteller. Create an EXACTLY 10-BEAT narrative for "${topic}".
+  
+  // Calculate beat count based on duration
+  const beatCount = duration === '30s' ? 5 : duration === '60s' ? 10 : 16;
+  
+  const prompt = `Act as a Master Storyteller. Create an EXACTLY ${beatCount}-BEAT narrative for "${topic}".
   
   CRITICAL INSTRUCTION: You MUST strictly adhere to the following STRATEGY. Do not hallucinate a different topic.
   STRATEGY CONTEXT:
@@ -82,7 +86,7 @@ export const generateNarrative = async (topic: string, hookStyle: HookStyle, str
   - Tone: ${strategy?.toneStyle}
 
   STRICT RULES:
-  1. EXACTLY 10 beats.
+  1. EXACTLY ${beatCount} beats.
   2. The flow must match the Strategy Summary above.
   3. No generic headers. Specific data points only.
   
@@ -117,8 +121,9 @@ export const planScenes = async (beats: NarrativeBeat[], aspectRatio: AspectRati
   INSTRUCTIONS:
   1. Create a scene for each beat.
   2. EACH SCENE REQUIRES TWO DISTINCT VISUAL CONCEPTS (A and B).
-  3. Select the best transition effect entering the scene ('transitionIn') and between clip A and B ('transitionMid').
-  4. Available Transitions: FADE, CUT, DISSOLVE, SLIDE_LEFT, SLIDE_RIGHT, ZOOM_IN, GLITCH, WIPE.
+  3. The first 3 scenes MUST have 'useVeo' set to true for dynamic engagement.
+  4. Select the best transition effect entering the scene ('transitionIn') and between clip A and B ('transitionMid').
+  5. Available Transitions: FADE, CUT, DISSOLVE, SLIDE_LEFT, SLIDE_RIGHT, ZOOM_IN, GLITCH, WIPE.
   
   Return a JSON array of Scene objects.`;
 

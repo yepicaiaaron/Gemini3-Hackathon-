@@ -12,6 +12,24 @@ export enum PipelineStep {
   ERROR = 'ERROR'
 }
 
+export interface User {
+  id: string;
+  email: string;
+  name: string;
+  avatar: string;
+}
+
+export interface GalleryItem {
+  id: string;
+  userId: string;
+  topic: string;
+  thumbnail: string;
+  timestamp: number;
+  durationLabel: string;
+  sceneCount: number;
+  state: ProjectState;
+}
+
 export interface NarrativeBeat {
   beat: string;
   goal: string;
@@ -49,6 +67,7 @@ export type TransitionType = 'FADE' | 'CUT' | 'DISSOLVE' | 'SLIDE_LEFT' | 'SLIDE
 
 export type HookStyle = 'AI_SELECTED' | 'FAST_CUT' | 'ARTICLE_HIGHLIGHT' | 'TEXT_MATCH';
 export type AspectRatio = '16:9' | '9:16' | '1:1';
+export type VideoDuration = '30s' | '60s' | '120s';
 
 export type AssetStatus = 'idle' | 'loading' | 'success' | 'error';
 
@@ -114,11 +133,13 @@ export interface Scene {
 }
 
 export interface ProjectState {
+  id?: string;
   topic: string;
   userLinks: string[]; 
   voice: string;
   hookStyle: HookStyle;
   aspectRatio: AspectRatio;
+  duration: VideoDuration;
   status: PipelineStep;
   strategy?: VideoStrategy;
   narrativeBeats: NarrativeBeat[];
@@ -128,7 +149,8 @@ export interface ProjectState {
 }
 
 export type AgentAction = 
-  | { type: 'START_ANALYSIS'; payload: { topic: string; userLinks: string[]; voice: string; hookStyle: HookStyle; aspectRatio: AspectRatio } }
+  | { type: 'START_ANALYSIS'; payload: { topic: string; userLinks: string[]; voice: string; hookStyle: HookStyle; aspectRatio: AspectRatio; duration: VideoDuration } }
+  | { type: 'LOAD_PROJECT'; payload: ProjectState }
   | { type: 'SET_STRATEGY'; payload: VideoStrategy }
   | { type: 'UPDATE_STRATEGY'; payload: VideoStrategy }
   | { type: 'SET_STATUS'; payload: PipelineStep }

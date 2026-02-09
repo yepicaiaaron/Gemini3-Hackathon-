@@ -1,5 +1,5 @@
 
-import React from 'react';
+import React, { useState } from 'react';
 import { Scene, PipelineStep, AssetStatus, TransitionType } from '../types';
 import { Clock, Film, Search, Mic, Image as ImageIcon, Video as VideoIcon, CheckCircle2, Loader2, XCircle, Layout, Binary, Sparkles, ArrowRight, SplitSquareHorizontal } from 'lucide-react';
 
@@ -14,17 +14,51 @@ interface SceneCardProps {
 
 const TRANSITIONS: TransitionType[] = ['FADE', 'CUT', 'DISSOLVE', 'SLIDE_LEFT', 'SLIDE_RIGHT', 'ZOOM_IN', 'GLITCH', 'WIPE'];
 
-const StatusIndicator = ({ label, status, icon }: { label: string, status: AssetStatus, icon: React.ReactNode }) => (
-    <div className="flex items-center justify-between py-1.5 px-3 bg-black/20 rounded-lg border border-white/5">
-        <div className="flex items-center gap-2 text-[10px] font-mono text-zinc-500 uppercase tracking-widest">
-            {icon} {label}
+interface StatusIndicatorProps {
+    label: string;
+    status: AssetStatus;
+    icon: React.ReactNode;
+    previewUrl?: string;
+}
+
+const StatusIndicator: React.FC<StatusIndicatorProps> = ({ label, status, icon, previewUrl }) => {
+    const [isHovered, setIsHovered] = useState(false);
+    const showPreview = status === 'success' && previewUrl && isHovered;
+
+    return (
+        <div 
+            className="relative"
+            onMouseEnter={() => setIsHovered(true)}
+            onMouseLeave={() => setIsHovered(false)}
+        >
+            <div className="flex items-center justify-between py-1.5 px-3 bg-black/20 rounded-lg border border-white/5 cursor-default hover:bg-black/40 transition-colors">
+                <div className="flex items-center gap-2 text-[10px] font-mono text-zinc-500 uppercase tracking-widest">
+                    {icon} {label}
+                </div>
+                {status === 'loading' ? <Loader2 size={12} className="text-blue-500 animate-spin" /> : 
+                 status === 'success' ? <CheckCircle2 size={12} className="text-green-500" /> :
+                 status === 'error' ? <XCircle size={12} className="text-red-500" /> :
+                 <div className="w-3 h-3 rounded-full border border-zinc-700" />}
+            </div>
+
+            {/* Hover Preview Tooltip */}
+            {showPreview && (
+                <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 z-50 pointer-events-none">
+                    <div className="w-32 h-32 bg-black border border-white/20 rounded-lg overflow-hidden shadow-2xl animate-in zoom-in-95 duration-200">
+                        {previewUrl.match(/\.(mp4|webm)|blob:/) && !previewUrl.includes('image') ? (
+                            <video src={previewUrl} className="w-full h-full object-cover" autoPlay muted loop />
+                        ) : (
+                            <img src={previewUrl} className="w-full h-full object-cover" alt="Preview" />
+                        )}
+                        <div className="absolute inset-0 ring-1 ring-inset ring-white/10 rounded-lg" />
+                    </div>
+                    {/* Arrow */}
+                    <div className="w-2 h-2 bg-black border-r border-b border-white/20 transform rotate-45 absolute left-1/2 -translate-x-1/2 -bottom-1" />
+                </div>
+            )}
         </div>
-        {status === 'loading' ? <Loader2 size={12} className="text-blue-500 animate-spin" /> : 
-         status === 'success' ? <CheckCircle2 size={12} className="text-green-500" /> :
-         status === 'error' ? <XCircle size={12} className="text-red-500" /> :
-         <div className="w-3 h-3 rounded-full border border-zinc-700" />}
-    </div>
-);
+    );
+};
 
 const TransitionSelect = ({ value, onChange, label }: { value: TransitionType, onChange: (v: TransitionType) => void, label: string }) => (
     <div className="flex items-center gap-2 bg-black/40 rounded-lg px-2 py-1 border border-white/5">
@@ -113,12 +147,12 @@ export const SceneCard: React.FC<SceneCardProps> = ({ scene, index, status, onVi
               
               {isProduction && (
                   <div className="grid grid-cols-2 gap-3">
-                      <StatusIndicator label="Voiceover" status={scene.statusAudio} icon={<Mic size={10} />} />
-                      <StatusIndicator label="Topology" status={'success'} icon={<Layout size={10} />} />
-                      <StatusIndicator label="Visual A" status={scene.statusImage1} icon={<ImageIcon size={10} />} />
-                      <StatusIndicator label="Visual B" status={scene.statusImage2} icon={<ImageIcon size={10} />} />
-                      {scene.useVeo && <StatusIndicator label="Motion A" status={scene.statusVideo1} icon={<VideoIcon size={10} />} />}
-                      {scene.useVeo && <StatusIndicator label="Motion B" status={scene.statusVideo2} icon={<VideoIcon size={10} />} />}
+                      <StatusIndicator label="Voiceover" status={scene.statusAudio} icon={<Mic size={10} />} previewUrl={undefined} />
+                      <StatusIndicator label="Topology" status={'success'} icon={<Layout size={10} />} previewUrl={undefined} />
+                      <StatusIndicator label="Visual A" status={scene.statusImage1} icon={<ImageIcon size={10} />} previewUrl={scene.imageUrl1} />
+                      <StatusIndicator label="Visual B" status={scene.statusImage2} icon={<ImageIcon size={10} />} previewUrl={scene.imageUrl2} />
+                      {scene.useVeo && <StatusIndicator label="Motion A" status={scene.statusVideo1} icon={<VideoIcon size={10} />} previewUrl={scene.videoUrl1} />}
+                      {scene.useVeo && <StatusIndicator label="Motion B" status={scene.statusVideo2} icon={<VideoIcon size={10} />} previewUrl={scene.videoUrl2} />}
                   </div>
               )}
           </div>
